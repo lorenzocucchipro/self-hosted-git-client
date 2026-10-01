@@ -1,6 +1,28 @@
+# Dependencies
 node_modules
+
+# Build output
 out
 dist
-*.log
-.DS_Store
 .vite
+
+# Logs
+*.log
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Devin agent — temporary plans (gitignored per project rules)
+.devin/plans/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Test coverage
+coverage
