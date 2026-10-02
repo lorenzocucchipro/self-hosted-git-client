@@ -1,8 +1,10 @@
 import React, { useMemo, useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { FileEdit, CloudOff, Archive, GitBranch, Cloud, Tag } from 'lucide-react'
 import { useStore } from '../store/useStore'
+import { DEFAULT_COLUMN_WIDTHS, MIN_COLUMN_WIDTHS } from '../store/useStore'
 import { computeGraph, type GraphRow } from '../lib/graph'
 import { relativeTime, initials, colorFromString, dayKey, dayLabel } from '../lib/format'
+import type { ColumnWidths } from '@shared/types'
 import { ContextMenu, useContextMenu, type MenuItem } from './ui'
 import { RebaseModal } from './RebaseModal'
 import { Avatar } from './Avatar'
@@ -77,21 +79,49 @@ export function CommitGraph(): React.JSX.Element {
     selectedRef.current?.scrollIntoView({ block: 'nearest' })
   }, [selection])
 
+  const columnWidths = useStore((s) => s.columnWidths) ?? DEFAULT_COLUMN_WIDTHS
+
   const dirty = status && !status.isClean
   const changeCount = status ? status.staged.length + status.unstaged.length : 0
 
   return (
-    <div className="h-full overflow-auto bg-app-bg">
+    <div
+      className="h-full overflow-auto bg-app-bg"
+      onContextMenu={(e) => {
+        // Empty-space right-click below the commit rows: show the column reset menu.
+        if (e.currentTarget !== e.target) return
+        e.preventDefault()
+        cm.open(e, [
+          {
+            label: 'Reset column widths to defaults',
+            onClick: () => useStore.getState().resetColumnWidths()
+          }
+        ])
+      }}
+    >
       {/* Header */}
-      <div className="sticky top-0 z-10 flex items-center h-7 px-3 bg-app-panel border-b border-app-border text-[11px] uppercase tracking-wide text-app-muted">
-        <span style={{ width: graphWidth }}>Graph</span>
-        <span style={{ width: REFS_W }} className="shrink-0">
-          Refs
-        </span>
-        <span className="flex-1">Description</span>
-        <span className="w-40">Author</span>
-        <span className="w-20 text-right">Date</span>
-        <span className="w-16 text-right">SHA</span>
+      <div
+        className="sticky top-0 z-10 flex items-center h-7 px-3 bg-app-panel border-b border-app-border text-[11px] uppercase tracking-wide text-app-muted select-none"
+        onContextMenu={(e) => {
+          e.preventDefault()
+          cm.open(e, [
+            {
+              label: 'Reset column widths to defaults',
+              onClick: () => useStore.getState().resetColumnWidths()
+            }
+          ])
+        }}
+      >
+        <span style={{ width: graphWidth }} className="shrink-0">Graph</span>
+        <ColumnHeader label="Refs" width={columnWidths.refs} />
+        <ColumnDivider left="refs" right="description" widths={columnWidths} />
+        <ColumnHeader label="Description" width={columnWidths.description} />
+        <ColumnDivider left="description" right="author" widths={columnWidths} />
+        <ColumnHeader label="Author" width={columnWidths.author} />
+        <ColumnDivider left="author" right="date" widths={columnWidths} />
+        <ColumnHeader label="Date" width={columnWidths.date} align="right" />
+        <ColumnDivider left="date" right="sha" widths={columnWidths} />
+        <ColumnHeader label="SHA" width={columnWidths.sha} align="right" />
       </div>
 
       {dirty && (
@@ -136,6 +166,7 @@ export function CommitGraph(): React.JSX.Element {
                 row={row}
                 commit={commit}
                 graphWidth={graphWidth}
+                columnWidths={columnWidths}
                 currentBranch={currentBranch}
                 detached={detached}
                 dimmed={!!searchMatches && !searchMatches.has(row.hash)}
@@ -215,6 +246,7 @@ function CommitRow({
   row,
   commit,
   graphWidth,
+  columnWidths,
   currentBranch,
   detached,
   dimmed,
@@ -228,6 +260,7 @@ function CommitRow({
   row: GraphRow
   commit: Commit
   graphWidth: number
+  columnWidths: ColumnWidths
   currentBranch: string | null
   detached: boolean
   dimmed: boolean
@@ -260,7 +293,7 @@ function CommitRow({
     // grow by 1px on every re-measure (e.g. each refresh).
     const h = el.clientHeight
     setRowH((prev) => (prev !== h ? h : prev))
-  }, [commit.refs, graphWidth])
+  }, [commit.refs, graphWidth, columnWidths])
 
   const mid = rowH / 2
   return (
@@ -342,8 +375,9 @@ function CommitRow({
         )}
       </svg>
 
-      <div style={{ width: REFS_W }} className="shrink-0 flex items-center gap-1 py-1 pl-1 pr-2">
+      <div style={{ width: columnWidths.refs }} className="shrink-0 overflow-hidden flex items-center gap-1 py-1 pl-1 pr-2">
         <RefLabels
+          title={commit.refs.map((r) => r.name).join(', ')}
           labels={[
             // In detached HEAD there's no current branch to mark "you are here",
             // so show an explicit HEAD chip on the checked-out commit.
@@ -367,19 +401,40 @@ function CommitRow({
         />
       </div>
 
-      <div className="flex-1 min-w-0 self-stretch flex items-center gap-1.5 px-2 border-l border-app-border/40">
-        {!commit.pushed && !commit.refs.some((r) => r.type === 'stash') && (
-          <span
-            title="Not pushed to any remote"
-            className="flex items-center gap-1 px-1.5 h-[18px] rounded bg-app-warning/20 text-app-warning text-[10px] font-medium shrink-0"
-          >
-            <CloudOff size={11} /> unpushed
-          </span>
-        )}
-        <span className="truncate text-app-text">{commit.subject}</span>
-      </div>
+      {columnWidths.description == null ? (
+        <div className="flex-1 min-w-0 overflow-hidden self-stretch flex items-center gap-1.5 px-2 border-l border-app-border/40">
+          {!commit.pushed && !commit.refs.some((r) => r.type === 'stash') && (
+            <span
+              title="Not pushed to any remote"
+              className="flex items-center gap-1 px-1.5 h-[18px] rounded bg-app-warning/20 text-app-warning text-[10px] font-medium shrink-0"
+            >
+              <CloudOff size={11} /> unpushed
+            </span>
+          )}
+          <OverflowTitle title={commit.subject} className="truncate text-app-text">
+            {commit.subject}
+          </OverflowTitle>
+        </div>
+      ) : (
+        <div
+          style={{ width: columnWidths.description }}
+          className="shrink-0 overflow-hidden self-stretch flex items-center gap-1.5 px-2 border-l border-app-border/40"
+        >
+          {!commit.pushed && !commit.refs.some((r) => r.type === 'stash') && (
+            <span
+              title="Not pushed to any remote"
+              className="flex items-center gap-1 px-1.5 h-[18px] rounded bg-app-warning/20 text-app-warning text-[10px] font-medium shrink-0"
+            >
+              <CloudOff size={11} /> unpushed
+            </span>
+          )}
+          <OverflowTitle title={commit.subject} className="truncate text-app-text">
+            {commit.subject}
+          </OverflowTitle>
+        </div>
+      )}
 
-      <div className="w-40 flex items-center gap-1.5 shrink-0 pr-2">
+      <div style={{ width: columnWidths.author }} className="shrink-0 overflow-hidden flex items-center gap-1.5 pr-2">
         <Avatar
           name={commit.author}
           email={commit.authorEmail}
@@ -387,12 +442,20 @@ function CommitRow({
           fontSize={9}
           title={`${commit.author} <${commit.authorEmail}>`}
         />
-        <span className="truncate text-app-muted text-[12px]">{commit.author}</span>
+        <OverflowTitle title={commit.author} className="truncate text-app-muted text-[12px]">
+          {commit.author}
+        </OverflowTitle>
       </div>
-      <span className="w-20 text-right text-app-muted text-[12px] shrink-0 pr-2">
+      <span
+        style={{ width: columnWidths.date }}
+        className="text-right text-app-muted text-[12px] shrink-0 overflow-hidden pr-2"
+      >
         {relativeTime(commit.date)}
       </span>
-      <span className="w-16 text-right font-mono text-app-muted text-[11px] shrink-0 pr-3">
+      <span
+        style={{ width: columnWidths.sha }}
+        className="text-right font-mono text-app-muted text-[11px] shrink-0 overflow-hidden pr-3"
+      >
         {commit.shortHash}
       </span>
     </div>
@@ -430,21 +493,25 @@ function groupBranchRefs(refs: CommitRef[]): BranchGroup[] {
 /** Renders a commit's ref labels compactly: the first one plus a "+X" chip when
  *  there are more, revealing the full set on hover (in the foreground) so a busy
  *  commit never stretches the row. */
-function RefLabels({ labels }: { labels: React.ReactNode[] }): React.JSX.Element | null {
+function RefLabels({ labels, title }: { labels: React.ReactNode[]; title?: string }): React.JSX.Element | null {
   if (labels.length === 0) return null
   if (labels.length === 1) return <>{labels[0]}</>
+  const ref = useRef<HTMLSpanElement>(null)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    setOverflows(!!el && el.scrollWidth > el.clientWidth)
+  }, [labels.length])
   return (
-    <>
+    <span ref={ref} className="relative inline-flex shrink-0 group/more" title={overflows && title ? title : undefined}>
       {labels[0]}
-      <span className="relative inline-flex shrink-0 group/more">
-        <span className="px-1.5 h-[20px] inline-flex items-center rounded border border-app-border bg-app-panel-2 text-app-muted text-[11px] font-semibold cursor-default">
-          +{labels.length - 1}
-        </span>
-        <span className="absolute left-0 top-0 z-40 hidden w-max max-w-[320px] group-hover/more:flex flex-wrap items-center gap-1 p-1.5 rounded-md border border-app-border bg-app-panel shadow-2xl">
-          {labels}
-        </span>
+      <span className="px-1.5 h-[20px] inline-flex items-center rounded border border-app-border bg-app-panel-2 text-app-muted text-[11px] font-semibold cursor-default">
+        +{labels.length - 1}
       </span>
-    </>
+      <span className="absolute left-0 top-0 z-40 hidden w-max max-w-[320px] group-hover/more:flex flex-wrap items-center gap-1 p-1.5 rounded-md border border-app-border bg-app-panel shadow-2xl">
+        {labels}
+      </span>
+    </span>
   )
 }
 
@@ -853,6 +920,11 @@ function buildMenu(commit: Commit, setModal: (n: React.ReactNode) => void): Menu
     {
       label: 'Copy full SHA',
       onClick: () => navigator.clipboard.writeText(commit.hash)
+    },
+    { label: '', separator: true, onClick: () => {} },
+    {
+      label: 'Reset column widths to defaults',
+      onClick: () => store().resetColumnWidths()
     }
   ]
 }
@@ -872,5 +944,112 @@ function BranchFromCommit({ hash, onClose }: { hash: string; onClose: () => void
       }}
       onClose={onClose}
     />
+  )
+}
+
+/** Header cell rendered with a dynamic or flex width and optional right alignment.
+ *  The Description column keeps its natural width when flex so the label is never
+ *  crushed. */
+function ColumnHeader({
+  label,
+  width,
+  align = 'left'
+}: {
+  label: string
+  width: number | null
+  align?: 'left' | 'right'
+}): React.JSX.Element {
+  const alignClass = align === 'right' ? 'text-right' : 'text-left'
+  return width == null ? (
+    <span className={`flex-1 overflow-hidden px-2 ${alignClass}`}>{label}</span>
+  ) : (
+    <span style={{ width }} className={`shrink-0 overflow-hidden px-2 ${alignClass}`}>
+      {label}
+    </span>
+  )
+}
+
+/** Draggable divider between two header columns. */
+function ColumnDivider({
+  left,
+  right,
+  widths
+}: {
+  left: keyof ColumnWidths
+  right: keyof ColumnWidths
+  widths: ColumnWidths
+}): React.JSX.Element {
+  const handlePointerDown = (e: React.PointerEvent<HTMLSpanElement>): void => {
+    const target = e.currentTarget
+    target.setPointerCapture(e.pointerId)
+    const startX = e.clientX
+    const startWidth = (widths[left] ?? DEFAULT_COLUMN_WIDTHS[left] ?? 160) as number
+    const rightStart = widths[right] ?? DEFAULT_COLUMN_WIDTHS[right]
+    const minLeft = MIN_COLUMN_WIDTHS[left]
+    let maxLeft = Number.POSITIVE_INFINITY
+    if (rightStart != null) {
+      const minRight = MIN_COLUMN_WIDTHS[right]
+      maxLeft = startWidth + (rightStart - minRight)
+    }
+
+    const move = (ev: PointerEvent): void => {
+      const delta = ev.clientX - startX
+      const nextLeft = Math.max(minLeft, startWidth + delta)
+      const clampedLeft = Math.min(nextLeft, maxLeft)
+      const store = useStore.getState()
+      // If Description is currently flex, pin it to a fixed width on first drag.
+      if (left === 'description' && widths.description == null) {
+        store.resizeColumn('description', clampedLeft)
+      } else {
+        store.resizeColumn(left, clampedLeft)
+      }
+    }
+
+    const up = (ev: PointerEvent): void => {
+      target.releasePointerCapture(ev.pointerId)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  return (
+    <span
+      onPointerDown={handlePointerDown}
+      className="group relative shrink-0 cursor-col-resize z-20"
+      style={{ width: 8, marginLeft: -4, marginRight: -4 }}
+    >
+      {/* visible 1px separator line */}
+      <span className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-px bg-app-border group-hover:bg-app-accent" />
+      {/* subtle background hint on hover */}
+      <span className="absolute inset-0 bg-app-accent/0 group-hover:bg-app-accent/10 rounded-sm" />
+    </span>
+  )
+}
+
+/** Native tooltip helper: sets `title` only when the element's content genuinely
+ *  overflows (scrollWidth > clientWidth). Falls back to a provided `title` when the
+ *  visible children are not a plain string. */
+function OverflowTitle({
+  children,
+  title,
+  className
+}: {
+  children: React.ReactNode
+  title?: string
+  className?: string
+}): React.JSX.Element {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    setOverflows(!!el && el.scrollWidth > el.clientWidth)
+  }, [children])
+  return (
+    <span ref={ref} className={className} title={overflows && title ? title : undefined}>
+      {children}
+    </span>
   )
 }

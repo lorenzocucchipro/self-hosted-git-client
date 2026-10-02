@@ -17,7 +17,8 @@ import type {
   UpdateInfo,
   MergeState,
   UndoInfo,
-  RebaseTodoItem
+  RebaseTodoItem,
+  ColumnWidths
 } from '@shared/types'
 
 /** Debounce handle for the git-backed part of the search (filenames + code). */
@@ -25,6 +26,26 @@ let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
 /** Last background fetch per repo path — throttles the focus/switch triggers. */
 const lastAutoFetch = new Map<string, number>()
+
+let columnWidthsSaveDebounce: ReturnType<typeof setTimeout> | null = null
+
+export const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
+  refs: 200,
+  description: null,
+  author: 160,
+  date: 80,
+  sha: 64
+}
+
+export const MIN_COLUMN_WIDTHS: Required<Pick<ColumnWidths, 'refs' | 'author' | 'date' | 'sha'>> & {
+  description: number
+} = {
+  refs: 80,
+  description: 120,
+  author: 100,
+  date: 60,
+  sha: 50
+}
 
 export type Selection =
   | { type: 'commit'; hash: string }
@@ -83,6 +104,10 @@ interface AppState {
   /** last undoable action on the current branch (null = nothing to undo) */
   undoInfo: UndoInfo | null
 
+  // column layout
+  columnWidths: ColumnWidths | null
+  columnWidthsLoaded: boolean
+
   // repo data
   commits: Commit[]
   status: RepoStatus | null
@@ -135,6 +160,10 @@ interface AppState {
   removeRecent: (path: string) => Promise<void>
   closeRepo: () => void
   refreshAll: () => Promise<void>
+
+  loadColumnWidths: (repoPath: string) => Promise<void>
+  resizeColumn: (col: keyof ColumnWidths, width: number) => void
+  resetColumnWidths: () => Promise<void>
 
   selectCommit: (hash: string) => Promise<void>
   selectWip: () => Promise<void>
@@ -227,6 +256,9 @@ export const useStore = create<AppState>()((set, get) => ({
   workingDiff: [],
   workingFile: null,
   loadingDiff: false,
+
+  columnWidths: null,
+  columnWidthsLoaded: false,
 
   setTheme: (t) => {
     applyBranding(t)
@@ -461,9 +493,12 @@ export const useStore = create<AppState>()((set, get) => ({
       workingDiff: [],
       selectedFilePath: null,
       workingFile: null,
-      editorOpen: false
+      editorOpen: false,
+      columnWidths: null,
+      columnWidthsLoaded: false
     })
     await get().refreshAll()
+    await get().loadColumnWidths(info.path)
     // If the user already switched again, stop — selecting here would act on
     // the newer repo's data.
     if (get().repo?.path !== info.path) return
@@ -480,7 +515,7 @@ export const useStore = create<AppState>()((set, get) => ({
     if (get().repo?.path === path) return
     const existing = get().tabs.find((t) => t.path === path)
     if (!existing) return
-    set({ loadingRepo: true })
+    set({ loadingRepo: true, columnWidths: null, columnWidthsLoaded: false })
     try {
       const info = await call(api.openRepo(path)).catch(() => existing)
       set({ tabs: get().tabs.map((t) => (t.path === path ? info : t)) })
@@ -503,6 +538,8 @@ export const useStore = create<AppState>()((set, get) => ({
       }
       set({
         repo: null,
+        columnWidths: null,
+        columnWidthsLoaded: false,
         commits: [],
         status: null,
         branches: [],
@@ -550,6 +587,30 @@ export const useStore = create<AppState>()((set, get) => ({
     }
   },
 
+  loadColumnWidths: async (repoPath) => {
+    const saved = await call(api.getColumnWidths(repoPath))
+    set({ columnWidths: saved ?? DEFAULT_COLUMN_WIDTHS, columnWidthsLoaded: true })
+  },
+
+  resizeColumn: (col, width) => {
+    const repo = get().repo?.path
+    if (!repo) return
+    const next = { ...(get().columnWidths ?? DEFAULT_COLUMN_WIDTHS), [col]: width }
+    set({ columnWidths: next })
+    // Debounce persistence so rapid drags don't hammer the main process.
+    if (columnWidthsSaveDebounce) clearTimeout(columnWidthsSaveDebounce)
+    columnWidthsSaveDebounce = setTimeout(() => {
+      void call(api.setColumnWidths(repo, next))
+    }, 400)
+  },
+
+  resetColumnWidths: async () => {
+    const repo = get().repo?.path
+    if (!repo) return
+    set({ columnWidths: DEFAULT_COLUMN_WIDTHS })
+    await call(api.setColumnWidths(repo, null))
+  },
+
   persistSession: () => {
     const paths = get().tabs.map((t) => t.path)
     const active = get().repo?.path ?? null
@@ -569,6 +630,8 @@ export const useStore = create<AppState>()((set, get) => ({
     set({
       tabs: [],
       repo: null,
+      columnWidths: null,
+      columnWidthsLoaded: false,
       commits: [],
       status: null,
       branches: [],

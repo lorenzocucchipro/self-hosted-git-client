@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { promises as fs } from 'fs'
 import { join, basename } from 'path'
-import type { RecentRepo, AppSession } from '@shared/types'
+import type { RecentRepo, AppSession, ColumnWidths } from '@shared/types'
 
 // Tiny JSON-file persistence for app-level state (recent repositories, open
 // tabs, …). Lives in the per-user Electron userData directory.
@@ -10,6 +10,7 @@ interface PersistedState {
   recentRepos: RecentRepo[]
   openRepos: string[]
   activeRepo: string | null
+  repoColumnWidths: Record<string, ColumnWidths>
 }
 
 const FILE = () => join(app.getPath('userData'), 'state.json')
@@ -20,7 +21,12 @@ const MAX_RECENT = 15
 // real state file.
 const DEMO_REPO = process.env.SCREENSHOT_REPO
 
-const emptyState = (): PersistedState => ({ recentRepos: [], openRepos: [], activeRepo: null })
+const emptyState = (): PersistedState => ({
+  recentRepos: [],
+  openRepos: [],
+  activeRepo: null,
+  repoColumnWidths: {}
+})
 
 let state: PersistedState = emptyState()
 let loaded = false
@@ -28,7 +34,7 @@ let loaded = false
 async function load(): Promise<void> {
   if (loaded) return
   if (DEMO_REPO) {
-    state = { recentRepos: [], openRepos: [DEMO_REPO], activeRepo: DEMO_REPO }
+    state = { recentRepos: [], openRepos: [DEMO_REPO], activeRepo: DEMO_REPO, repoColumnWidths: {} }
     loaded = true
     return
   }
@@ -81,6 +87,21 @@ export const store = {
     await load()
     state.openRepos = openRepos
     state.activeRepo = activeRepo
+    await save()
+  },
+
+  async getColumnWidths(path: string): Promise<ColumnWidths | null> {
+    await load()
+    return state.repoColumnWidths[path] ?? null
+  },
+
+  async setColumnWidths(path: string, widths: ColumnWidths | null): Promise<void> {
+    await load()
+    if (widths == null) {
+      delete state.repoColumnWidths[path]
+    } else {
+      state.repoColumnWidths[path] = widths
+    }
     await save()
   }
 }

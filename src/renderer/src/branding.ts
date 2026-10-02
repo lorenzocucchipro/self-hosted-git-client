@@ -17,7 +17,7 @@ export const branding = {
   tagline: 'Free, open and entirely yours',
 
   /** Version shown in the about section (keep it in sync with package.json). */
-  version: '1.2.2',
+  version: '1.2.3',
 
   /**
    * Color theme. Intentionally a small set of semantic tokens: change them and

@@ -8,7 +8,8 @@ import type {
   PushOptions,
   GenerateSshKeyOptions,
   MergeOperation,
-  RebaseTodoItem
+  RebaseTodoItem,
+  ColumnWidths
 } from '@shared/types'
 import { gitService } from './services/gitService'
 import { sshService } from './services/sshService'
@@ -60,6 +61,10 @@ export function registerIpcHandlers(): void {
   handle(Channels.getSession, () => store.getSession())
   handle(Channels.setSession, (openRepos: string[], activeRepo: string | null) =>
     store.setSession(openRepos, activeRepo)
+  )
+  handle(Channels.getColumnWidths, (path: string) => store.getColumnWidths(path))
+  handle(Channels.setColumnWidths, (path: string, widths: ColumnWidths | null) =>
+    store.setColumnWidths(path, widths)
   )
   handle(Channels.checkForUpdate, () => updateService.check())
   handle(Channels.downloadUpdate, (url: string) => updateService.download(url))

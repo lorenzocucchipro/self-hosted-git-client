@@ -23,7 +23,8 @@ import type {
   MergeOperation,
   UndoInfo,
   RebaseCommit,
-  RebaseTodoItem
+  RebaseTodoItem,
+  ColumnWidths
 } from '@shared/types'
 
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<IpcResult<T>> =>
@@ -39,6 +40,9 @@ const api = {
   getSession: () => invoke<AppSession>(Channels.getSession),
   setSession: (openRepos: string[], activeRepo: string | null) =>
     invoke<void>(Channels.setSession, openRepos, activeRepo),
+  getColumnWidths: (path: string) => invoke<ColumnWidths | null>(Channels.getColumnWidths, path),
+  setColumnWidths: (path: string, widths: ColumnWidths | null) =>
+    invoke<void>(Channels.setColumnWidths, path, widths),
   checkForUpdate: () => invoke<UpdateInfo | null>(Channels.checkForUpdate),
   downloadUpdate: (url: string) => invoke<string>(Channels.downloadUpdate, url),
 

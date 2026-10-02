@@ -173,6 +173,16 @@ export interface GenerateSshKeyOptions {
 
 // --- IPC payloads -----------------------------------------------------------
 
+/** User-chosen widths (px) for the five resizable commit-history columns.
+ *  `description: null` means "flex" (fill remaining space) — the default. */
+export interface ColumnWidths {
+  refs: number
+  description: number | null
+  author: number
+  date: number
+  sha: number
+}
+
 export interface CommitOptions {
   message: string
   amend?: boolean

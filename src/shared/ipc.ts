@@ -10,6 +10,8 @@ export const Channels = {
   openExternal: 'app:openExternal',
   getSession: 'app:getSession',
   setSession: 'app:setSession',
+  getColumnWidths: 'app:getColumnWidths',
+  setColumnWidths: 'app:setColumnWidths',
   checkForUpdate: 'app:checkForUpdate',
   downloadUpdate: 'app:downloadUpdate',
 
