@@ -39,3 +39,29 @@ export function savePrefs(p: Prefs): void {
     /* storage unavailable — preferences just won't persist */
   }
 }
+
+const EXPANDED_KEY = (repoPath: string) => `app-expanded-${repoPath}`
+
+/** Per-repository set of expanded folder paths in the sidebar reference tree. */
+export function loadExpandedFolders(repoPath: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_KEY(repoPath))
+    if (raw) {
+      const parsed = JSON.parse(raw) as unknown
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.filter((p): p is string => typeof p === 'string'))
+      }
+    }
+  } catch {
+    /* corrupt/unavailable — fall back to empty */
+  }
+  return new Set()
+}
+
+export function saveExpandedFolders(repoPath: string, expanded: Set<string>): void {
+  try {
+    localStorage.setItem(EXPANDED_KEY(repoPath), JSON.stringify([...expanded]))
+  } catch {
+    /* storage unavailable — state just won't persist */
+  }
+}
