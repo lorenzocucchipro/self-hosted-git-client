@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore'
 import { DEFAULT_COLUMN_WIDTHS, MIN_COLUMN_WIDTHS } from '../store/useStore'
 import { computeGraph, type GraphRow } from '../lib/graph'
 import { relativeTime, initials, colorFromString, dayKey, dayLabel } from '../lib/format'
+import { useTruncatedTitle } from '../lib/useTruncatedTitle'
 import type { ColumnWidths } from '@shared/types'
 import { ContextMenu, useContextMenu, type MenuItem } from './ui'
 import { RebaseModal } from './RebaseModal'
@@ -81,6 +82,18 @@ export function CommitGraph(): React.JSX.Element {
 
   const columnWidths = useStore((s) => s.columnWidths) ?? DEFAULT_COLUMN_WIDTHS
 
+  // Minimum table width: sum of all fixed columns + the Description column's
+  // minimum (or its pinned width). This ensures rows and the header are at
+  // least this wide, so row backgrounds extend across the full scrollable
+  // area and no white gap appears when scrolled horizontally.
+  const tableMinWidth =
+    graphWidth +
+    columnWidths.refs +
+    (columnWidths.description ?? MIN_COLUMN_WIDTHS.description) +
+    columnWidths.author +
+    columnWidths.date +
+    columnWidths.sha
+
   const dirty = status && !status.isClean
   const changeCount = status ? status.staged.length + status.unstaged.length : 0
 
@@ -101,7 +114,8 @@ export function CommitGraph(): React.JSX.Element {
     >
       {/* Header */}
       <div
-        className="sticky top-0 z-10 flex items-center h-7 px-3 bg-app-panel border-b border-app-border text-[11px] uppercase tracking-wide text-app-muted select-none"
+        style={{ minWidth: tableMinWidth }}
+        className="sticky top-0 z-10 flex items-center h-7 bg-app-panel border-b border-app-border text-[11px] uppercase tracking-wide text-app-muted select-none"
         onContextMenu={(e) => {
           e.preventDefault()
           cm.open(e, [
@@ -112,7 +126,7 @@ export function CommitGraph(): React.JSX.Element {
           ])
         }}
       >
-        <span style={{ width: graphWidth }} className="shrink-0">Graph</span>
+        <span style={{ width: graphWidth }} className="shrink-0 px-2">Graph</span>
         <ColumnHeader label="Refs" width={columnWidths.refs} />
         <ColumnDivider left="refs" right="description" widths={columnWidths} />
         <ColumnHeader label="Description" width={columnWidths.description} />
@@ -131,9 +145,10 @@ export function CommitGraph(): React.JSX.Element {
             setFocusZone('commits')
             selectWip()
           }}
-          className={`flex items-center w-full h-9 px-3 border-b border-app-border text-left ${
+          className={`flex items-center h-9 px-3 border-b border-app-border text-left ${
             selection?.type === 'wip' ? 'bg-app-accent/15' : 'hover:bg-app-hover'
           }`}
+          style={{ minWidth: tableMinWidth }}
         >
           <span style={{ width: graphWidth }} className="flex items-center">
             <span
@@ -143,14 +158,14 @@ export function CommitGraph(): React.JSX.Element {
               <FileEdit size={9} className="text-app-accent" />
             </span>
           </span>
-          <span className="flex-1 text-app-text font-medium">
+          <span className="flex-1 truncate text-app-text font-medium">
             Uncommitted changes
             <span className="ml-2 text-[11px] text-app-muted">{changeCount} files</span>
           </span>
         </button>
       )}
 
-      <div>
+      <div style={{ minWidth: tableMinWidth }}>
         {layout.rows.map((row, idx) => {
           const commit = byHash.get(row.hash)!
           const selected = selection?.type === 'commit' && selection.hash === row.hash
@@ -237,7 +252,7 @@ function DayHeader({
           />
         ))}
       </svg>
-      <span className="pl-1 text-[11px] uppercase tracking-wide text-app-muted font-semibold">{label}</span>
+      <span className="pl-1 pr-2 text-[11px] uppercase tracking-wide text-app-muted font-semibold truncate">{label}</span>
     </div>
   )
 }
@@ -448,13 +463,13 @@ function CommitRow({
       </div>
       <span
         style={{ width: columnWidths.date }}
-        className="text-right text-app-muted text-[12px] shrink-0 overflow-hidden pr-2"
+        className="text-right text-app-muted text-[12px] shrink-0 overflow-hidden pr-2 truncate"
       >
         {relativeTime(commit.date)}
       </span>
       <span
         style={{ width: columnWidths.sha }}
-        className="text-right font-mono text-app-muted text-[11px] shrink-0 overflow-hidden pr-3"
+        className="text-right font-mono text-app-muted text-[11px] shrink-0 overflow-hidden pr-3 truncate"
       >
         {commit.shortHash}
       </span>
@@ -959,11 +974,23 @@ function ColumnHeader({
   width: number | null
   align?: 'left' | 'right'
 }): React.JSX.Element {
+  const title = useTruncatedTitle(label)
   const alignClass = align === 'right' ? 'text-right' : 'text-left'
   return width == null ? (
-    <span className={`flex-1 overflow-hidden px-2 ${alignClass}`}>{label}</span>
+    <span
+      ref={title.ref}
+      onMouseEnter={title.onMouseEnter}
+      className={`relative z-10 flex-1 overflow-hidden px-2 ${alignClass}`}
+    >
+      {label}
+    </span>
   ) : (
-    <span style={{ width }} className={`shrink-0 overflow-hidden px-2 ${alignClass}`}>
+    <span
+      ref={title.ref}
+      onMouseEnter={title.onMouseEnter}
+      style={{ width }}
+      className={`relative z-10 shrink-0 overflow-hidden px-2 ${alignClass}`}
+    >
       {label}
     </span>
   )
@@ -1018,13 +1045,13 @@ function ColumnDivider({
   return (
     <span
       onPointerDown={handlePointerDown}
-      className="group relative shrink-0 cursor-col-resize z-20"
-      style={{ width: 8, marginLeft: -4, marginRight: -4 }}
+      className="group relative shrink-0 self-stretch cursor-col-resize z-30"
+      style={{ width: 8 }}
     >
-      {/* visible 1px separator line */}
-      <span className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-px bg-app-border group-hover:bg-app-accent" />
-      {/* subtle background hint on hover */}
-      <span className="absolute inset-0 bg-app-accent/0 group-hover:bg-app-accent/10 rounded-sm" />
+      {/* visible separator line — distinct from row borders */}
+      <span className="absolute left-1/2 top-0 bottom-0 -translate-x-1/2 w-1 bg-app-muted/40 group-hover:bg-app-accent transition-colors" />
+      {/* hover background highlight */}
+      <span className="absolute inset-0 group-hover:bg-app-accent/20 rounded-sm transition-colors" />
     </span>
   )
 }

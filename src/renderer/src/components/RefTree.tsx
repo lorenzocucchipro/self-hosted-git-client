@@ -61,7 +61,7 @@ function TreeNode({
   setConfirm: (c: { title: string; message: string; onConfirm: () => void }) => void
   remote?: boolean
 }): React.JSX.Element {
-  const indent = `${node.depth * 12}px`
+  const indent = `${node.depth * 20}px`
 
   if (node.kind === 'leaf-branch' && node.ref) {
     return (
