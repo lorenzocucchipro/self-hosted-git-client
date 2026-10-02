@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from 'react'
 import { ChevronRight, ChevronDown, Tag as TagIcon } from 'lucide-react'
 import { buildRefTree, folderContainsCurrent, type RefTreeNode } from '../lib/refTree'
 import { loadExpandedFolders, saveExpandedFolders } from '../lib/prefs'
+import { useTruncatedTitle } from '../lib/useTruncatedTitle'
 import { BranchRow } from './BranchRow'
 import type { MenuItem } from './ui'
 import type { Branch, Tag } from '@shared/types'
@@ -77,20 +78,42 @@ function TreeNode({
   }
 
   if (node.kind === 'leaf-tag' && node.ref) {
-    return (
-      <div style={{ paddingLeft: indent }}>
-        <div
-          className="flex items-center gap-2 px-3 py-1 text-[12px] text-app-text hover:bg-app-hover cursor-default"
-        >
-          <TagIcon size={12} className="text-app-warning shrink-0" />
-          <span className="truncate" title={node.ref.name}>
-            {node.label}
-          </span>
-        </div>
-      </div>
-    )
+    return <TagLeaf node={node} indent={indent} />
   }
 
+  return (
+    <FolderNode
+      node={node}
+      indent={indent}
+      expanded={expanded}
+      onToggle={onToggle}
+      onMenu={onMenu}
+      setConfirm={setConfirm}
+      remote={remote}
+    />
+  )
+}
+
+type FolderNodeData = Extract<RefTreeNode, { kind: 'folder' }>
+
+function FolderNode({
+  node,
+  indent,
+  expanded,
+  onToggle,
+  onMenu,
+  setConfirm,
+  remote
+}: {
+  node: FolderNodeData
+  indent: string
+  expanded: Set<string>
+  onToggle: (path: string) => void
+  onMenu: (e: React.MouseEvent, items: MenuItem[]) => void
+  setConfirm: (c: { title: string; message: string; onConfirm: () => void }) => void
+  remote?: boolean
+}): React.JSX.Element {
+  const title = useTruncatedTitle(node.path)
   const isExpanded = expanded.has(node.path)
   const containsCurrent = folderContainsCurrent(node)
 
@@ -103,7 +126,13 @@ function TreeNode({
           className="group flex items-center gap-1 w-full px-3 py-1 text-left text-[12px] text-app-text hover:bg-app-hover cursor-default"
         >
           {isExpanded ? <ChevronDown size={13} className="shrink-0" /> : <ChevronRight size={13} className="shrink-0" />}
-          <span className="truncate flex-1">{node.label}</span>
+          <span
+            ref={title.ref}
+            onMouseEnter={title.onMouseEnter}
+            className="truncate flex-1"
+          >
+            {node.label}
+          </span>
           {!isExpanded && containsCurrent && (
             <span
               className="w-2 h-2 rounded-full bg-app-accent shrink-0"
@@ -128,6 +157,20 @@ function TreeNode({
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function TagLeaf({ node, indent }: { node: RefTreeNode; indent: string }): React.JSX.Element {
+  const title = useTruncatedTitle(node.ref!.name)
+  return (
+    <div style={{ paddingLeft: indent }}>
+      <div className="flex items-center gap-2 px-3 py-1 text-[12px] text-app-text hover:bg-app-hover cursor-default">
+        <TagIcon size={12} className="text-app-warning shrink-0" />
+        <span ref={title.ref} onMouseEnter={title.onMouseEnter} className="truncate">
+          {node.label}
+        </span>
+      </div>
     </div>
   )
 }

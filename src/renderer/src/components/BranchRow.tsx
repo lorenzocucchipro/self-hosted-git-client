@@ -1,5 +1,6 @@
 import { GitBranch, Check } from 'lucide-react'
 import { useStore } from '../store/useStore'
+import { useTruncatedTitle } from '../lib/useTruncatedTitle'
 import type { MenuItem } from './ui'
 import type { Branch } from '@shared/types'
 
@@ -17,6 +18,7 @@ export function BranchRow({
   setConfirm: (c: { title: string; message: string; onConfirm: () => void }) => void
 }): React.JSX.Element {
   const store = useStore.getState
+  const title = useTruncatedTitle(branch.name)
 
   const items: MenuItem[] = remote
     ? [
@@ -56,14 +58,17 @@ export function BranchRow({
       onDoubleClick={() => store().checkoutBranch(branch.name, !!remote)}
       onContextMenu={(e) => onMenu(e, items)}
       className="group flex items-center gap-2 px-3 py-1 text-[12px] cursor-default hover:bg-app-hover"
-      title={remote ? branch.name : undefined}
     >
       {branch.current ? (
         <Check size={12} className="text-app-success shrink-0" />
       ) : (
         <GitBranch size={12} className={`shrink-0 ${remote ? 'text-app-muted' : 'text-app-accent'}`} />
       )}
-      <span className={`truncate flex-1 ${branch.current ? 'text-app-text font-semibold' : 'text-app-text'}`}>
+      <span
+        ref={title.ref}
+        onMouseEnter={title.onMouseEnter}
+        className={`truncate flex-1 ${branch.current ? 'text-app-text font-semibold' : 'text-app-text'}`}
+      >
         {display}
       </span>
       {(branch.ahead > 0 || branch.behind > 0) && (
