@@ -8,6 +8,8 @@ import {
   ArchiveRestore,
   GitMerge,
   PanelLeft,
+  PanelRight,
+  FileDiff,
   Undo2
 } from 'lucide-react'
 import { useStore } from '../store/useStore'
@@ -28,7 +30,12 @@ export function Toolbar(): React.JSX.Element {
   const stashes = useStore((s) => s.stashes)
   const selection = useStore((s) => s.selection)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const rightOpen = useStore((s) => s.rightOpen)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const toggleRightSidebar = useStore((s) => s.toggleRightSidebar)
+  const editorOpen = useStore((s) => s.editorOpen)
+  const pendingDiff = useStore((s) => s.pendingDiff)
+  const toggleEditorView = useStore((s) => s.toggleEditorView)
   const pushRejected = useStore((s) => s.pushRejected)
   const dismissPushRejected = useStore((s) => s.dismissPushRejected)
   const undoInfo = useStore((s) => s.undoInfo)
@@ -68,6 +75,16 @@ export function Toolbar(): React.JSX.Element {
         className={sidebarOpen ? 'text-app-accent' : ''}
       >
         <PanelLeft size={16} />
+      </IconButton>
+      <IconButton
+        title={editorOpen ? 'Back to graph' : pendingDiff ? 'Return to diff view' : 'Open diff view'}
+        onClick={toggleEditorView}
+        className={`relative ${editorOpen ? 'text-app-accent' : ''}`}
+      >
+        <FileDiff size={16} />
+        {!editorOpen && pendingDiff && (
+          <span className="absolute top-1 right-1 w-1 h-1 rounded-full bg-app-accent" />
+        )}
       </IconButton>
       <div className="w-px h-6 bg-app-border mx-1.5" />
       <Button variant="ghost" onClick={() => fetch()} disabled={busy} title="Fetch remote refs">
@@ -135,6 +152,14 @@ export function Toolbar(): React.JSX.Element {
           )}
         </div>
       )}
+
+      <IconButton
+        title={rightOpen ? 'Hide right sidebar' : 'Show right sidebar'}
+        onClick={toggleRightSidebar}
+        className={rightOpen ? 'text-app-accent' : ''}
+      >
+        <PanelRight size={16} />
+      </IconButton>
 
       {branchModal && (
         <PromptModal

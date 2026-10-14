@@ -186,7 +186,7 @@ export const gitService = {
     return [...hashes]
   },
 
-  async getCommits(repoPath: string, limit = 500): Promise<Commit[]> {
+  async getCommits(repoPath: string, limit = 100000): Promise<Commit[]> {
     const format =
       ['%H', '%h', '%P', '%an', '%ae', '%aI', '%s', '%b', '%D'].join(FIELD) + RECORD
 

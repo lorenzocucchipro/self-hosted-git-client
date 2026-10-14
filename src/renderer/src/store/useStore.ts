@@ -18,7 +18,8 @@ import type {
   MergeState,
   UndoInfo,
   RebaseTodoItem,
-  ColumnWidths
+  ColumnWidths,
+  EditorSnapshot
 } from '@shared/types'
 
 /** Debounce handle for the git-backed part of the search (filenames + code). */
@@ -28,6 +29,25 @@ let searchDebounce: ReturnType<typeof setTimeout> | null = null
 const lastAutoFetch = new Map<string, number>()
 
 let columnWidthsSaveDebounce: ReturnType<typeof setTimeout> | null = null
+
+const CENTER_MIN = 480
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(Math.max(n, min), max)
+}
+
+function saveAllPrefs(get: () => AppState): void {
+  const s = get()
+  savePrefs({
+    theme: s.theme,
+    autoFetchMinutes: s.autoFetchMinutes,
+    defaultDiffView: s.defaultDiffView,
+    sidebarOpen: s.sidebarOpen,
+    sidebarWidth: s.sidebarWidth,
+    rightOpen: s.rightOpen,
+    rightWidth: s.rightWidth
+  })
+}
 
 export const DEFAULT_COLUMN_WIDTHS: ColumnWidths = {
   refs: 200,
@@ -77,12 +97,20 @@ interface AppState {
   /** background auto-fetch interval in minutes; 0 disables it */
   autoFetchMinutes: number
   sidebarOpen: boolean
+  sidebarWidth: number
+  rightOpen: boolean
+  rightWidth: number
+  /** last widths before collapse, used by toggleSidebar/toggleRightSidebar to restore */
+  lastSidebarWidth: number
+  lastRightWidth: number
   focusZone: 'commits' | 'files'
   // update notification
   update: UpdateInfo | null
   updateDownloading: boolean
   /** When true, the full-page diff editor replaces the commit graph. */
   editorOpen: boolean
+  /** Snapshot of diff state preserved when toggling from diff back to graph. */
+  pendingDiff: EditorSnapshot | null
   diffViewMode: DiffViewMode
   /** the view the diff editor opens with (persisted preference) */
   defaultDiffView: DiffViewMode
@@ -106,7 +134,6 @@ interface AppState {
 
   // column layout
   columnWidths: ColumnWidths | null
-  columnWidthsLoaded: boolean
 
   // repo data
   commits: Commit[]
@@ -129,9 +156,13 @@ interface AppState {
   setAutoFetchMinutes: (n: number) => void
   setDefaultDiffView: (mode: DiffViewMode) => void
   toggleSidebar: () => void
+  toggleRightSidebar: () => void
+  setSidebarWidth: (w: number) => void
+  setRightWidth: (w: number) => void
   setFocusZone: (zone: 'commits' | 'files') => void
   openEditor: () => void
   closeEditor: () => void
+  toggleEditorView: () => void
   openResolve: (file: string) => void
   closeResolve: () => void
   setDiffViewMode: (mode: DiffViewMode) => void
@@ -225,9 +256,15 @@ export const useStore = create<AppState>()((set, get) => ({
   pushRejected: null,
   theme: loadPrefs().theme,
   autoFetchMinutes: loadPrefs().autoFetchMinutes,
-  sidebarOpen: false,
+  sidebarOpen: loadPrefs().sidebarOpen,
+  sidebarWidth: loadPrefs().sidebarWidth,
+  rightOpen: loadPrefs().rightOpen,
+  rightWidth: loadPrefs().rightWidth,
+  lastSidebarWidth: loadPrefs().sidebarWidth,
+  lastRightWidth: loadPrefs().rightWidth,
   focusZone: 'commits',
   editorOpen: false,
+  pendingDiff: null,
   diffViewMode: loadPrefs().defaultDiffView,
   defaultDiffView: loadPrefs().defaultDiffView,
   update: null,
@@ -258,32 +295,103 @@ export const useStore = create<AppState>()((set, get) => ({
   loadingDiff: false,
 
   columnWidths: null,
-  columnWidthsLoaded: false,
 
   setTheme: (t) => {
     applyBranding(t)
     set({ theme: t })
-    savePrefs({ theme: t, autoFetchMinutes: get().autoFetchMinutes, defaultDiffView: get().defaultDiffView })
+    saveAllPrefs(get)
   },
 
   setAutoFetchMinutes: (n) => {
     set({ autoFetchMinutes: n })
-    savePrefs({ theme: get().theme, autoFetchMinutes: n, defaultDiffView: get().defaultDiffView })
+    saveAllPrefs(get)
   },
 
   setDefaultDiffView: (mode) => {
     // Update the preference and switch the current editor view along with it,
     // so the choice is visible immediately.
     set({ defaultDiffView: mode, diffViewMode: mode })
-    savePrefs({ theme: get().theme, autoFetchMinutes: get().autoFetchMinutes, defaultDiffView: mode })
+    saveAllPrefs(get)
   },
 
-  toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  toggleSidebar: () => {
+    const s = get()
+    if (s.sidebarOpen) {
+      set({ sidebarOpen: false, lastSidebarWidth: s.sidebarWidth })
+    } else {
+      const maxW = Math.max(180, window.innerWidth - s.rightWidth - CENTER_MIN)
+      const restored = clamp(s.lastSidebarWidth, 180, maxW)
+      set({ sidebarOpen: true, sidebarWidth: restored })
+    }
+    saveAllPrefs(get)
+  },
+
+  toggleRightSidebar: () => {
+    const s = get()
+    if (s.rightOpen) {
+      set({ rightOpen: false, lastRightWidth: s.rightWidth })
+    } else {
+      const maxW = Math.max(360, window.innerWidth - s.sidebarWidth - CENTER_MIN)
+      const restored = clamp(s.lastRightWidth, 360, maxW)
+      set({ rightOpen: true, rightWidth: restored })
+    }
+    saveAllPrefs(get)
+  },
+
+  setSidebarWidth: (w) => {
+    const s = get()
+    const maxW = Math.max(180, window.innerWidth - s.rightWidth - CENTER_MIN)
+    const next = clamp(w, 180, maxW)
+    set({ sidebarWidth: next })
+    saveAllPrefs(get)
+  },
+
+  setRightWidth: (w) => {
+    const s = get()
+    const maxW = Math.max(360, window.innerWidth - s.sidebarWidth - CENTER_MIN)
+    const next = clamp(w, 360, maxW)
+    set({ rightWidth: next })
+    saveAllPrefs(get)
+  },
 
   setFocusZone: (zone) => set({ focusZone: zone }),
 
   openEditor: () => set({ editorOpen: true }),
-  closeEditor: () => set({ editorOpen: false, editorSearchOpen: false, editorSearchQuery: '' }),
+  closeEditor: () =>
+    set({
+      editorOpen: false,
+      editorSearchOpen: false,
+      editorSearchQuery: '',
+      pendingDiff: null
+    }),
+  toggleEditorView: () => {
+    const s = get()
+    if (s.editorOpen) {
+      set({
+        editorOpen: false,
+        pendingDiff: {
+          filePath: s.selectedFilePath ?? '',
+          commitHash: s.selection?.type === 'commit' ? s.selection.hash : 'wip',
+          editorSearchOpen: s.editorSearchOpen,
+          editorSearchQuery: s.editorSearchQuery
+        }
+      })
+    } else if (s.pendingDiff) {
+      set({
+        editorOpen: true,
+        selectedFilePath: s.pendingDiff.filePath,
+        editorSearchOpen: s.pendingDiff.editorSearchOpen,
+        editorSearchQuery: s.pendingDiff.editorSearchQuery,
+        pendingDiff: null
+      })
+      const { pendingDiff } = s
+      if (pendingDiff.commitHash !== 'wip') {
+        void get().selectCommit(pendingDiff.commitHash)
+      } else {
+        void get().selectWip()
+      }
+    }
+  },
 
   openResolve: (file) => set({ resolveFile: file }),
   closeResolve: () => set({ resolveFile: null }),
@@ -494,8 +602,8 @@ export const useStore = create<AppState>()((set, get) => ({
       selectedFilePath: null,
       workingFile: null,
       editorOpen: false,
-      columnWidths: null,
-      columnWidthsLoaded: false
+      pendingDiff: null,
+      columnWidths: null
     })
     await get().refreshAll()
     await get().loadColumnWidths(info.path)
@@ -515,7 +623,7 @@ export const useStore = create<AppState>()((set, get) => ({
     if (get().repo?.path === path) return
     const existing = get().tabs.find((t) => t.path === path)
     if (!existing) return
-    set({ loadingRepo: true, columnWidths: null, columnWidthsLoaded: false })
+    set({ loadingRepo: true, columnWidths: null })
     try {
       const info = await call(api.openRepo(path)).catch(() => existing)
       set({ tabs: get().tabs.map((t) => (t.path === path ? info : t)) })
@@ -539,7 +647,6 @@ export const useStore = create<AppState>()((set, get) => ({
       set({
         repo: null,
         columnWidths: null,
-        columnWidthsLoaded: false,
         commits: [],
         status: null,
         branches: [],
@@ -589,7 +696,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
   loadColumnWidths: async (repoPath) => {
     const saved = await call(api.getColumnWidths(repoPath))
-    set({ columnWidths: saved ?? DEFAULT_COLUMN_WIDTHS, columnWidthsLoaded: true })
+    set({ columnWidths: saved ?? DEFAULT_COLUMN_WIDTHS })
   },
 
   resizeColumn: (col, width) => {
@@ -631,7 +738,6 @@ export const useStore = create<AppState>()((set, get) => ({
       tabs: [],
       repo: null,
       columnWidths: null,
-      columnWidthsLoaded: false,
       commits: [],
       status: null,
       branches: [],
@@ -655,7 +761,7 @@ export const useStore = create<AppState>()((set, get) => ({
     const p = repo.path
     const [commits, status, branches, remotes, stashes, tags, mergeState, undoInfo] =
       await Promise.all([
-        call(api.getCommits(p, 800)).catch(() => [] as Commit[]),
+        call(api.getCommits(p, 100000)).catch(() => [] as Commit[]),
         call(api.getStatus(p)).catch(() => null),
         call(api.getBranches(p)).catch(() => [] as Branch[]),
         call(api.getRemotes(p)).catch(() => [] as Remote[]),

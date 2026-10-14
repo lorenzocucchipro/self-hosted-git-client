@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react'
-import { Search, X } from 'lucide-react'
+import { Search, X, GitCommit } from 'lucide-react'
 import { useStore, type DiffViewMode } from '../store/useStore'
 import { DiffViewer } from './DiffViewer'
 import { SplitDiffView } from './SplitDiffView'
@@ -17,6 +17,7 @@ export function DiffEditor(): React.JSX.Element {
   const diffViewMode = useStore((s) => s.diffViewMode)
   const setDiffViewMode = useStore((s) => s.setDiffViewMode)
   const closeEditor = useStore((s) => s.closeEditor)
+  const toggleEditorView = useStore((s) => s.toggleEditorView)
   const searchOpen = useStore((s) => s.editorSearchOpen)
   const searchQuery = useStore((s) => s.editorSearchQuery)
   const setSearchQuery = useStore((s) => s.setEditorSearchQuery)
@@ -79,6 +80,10 @@ export function DiffEditor(): React.JSX.Element {
         <div className="flex-1" />
 
         <ViewToggle mode={diffViewMode} onChange={setDiffViewMode} />
+
+        <IconButton title="Back to graph (keep diff open)" onClick={toggleEditorView}>
+          <GitCommit size={16} />
+        </IconButton>
 
         <IconButton title="Close (Esc)" onClick={closeEditor}>
           <X size={16} />
