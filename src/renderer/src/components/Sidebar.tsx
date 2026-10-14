@@ -15,6 +15,7 @@ export function Sidebar(): React.JSX.Element {
   const selection = useStore((s) => s.selection)
   const selectWip = useStore((s) => s.selectWip)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const sidebarWidth = useStore((s) => s.sidebarWidth)
 
   const local = branches.filter((b) => !b.isRemote)
   const remote = branches.filter((b) => b.isRemote)
@@ -26,7 +27,10 @@ export function Sidebar(): React.JSX.Element {
   const [rename, setRename] = useState<{ index: number; message: string } | null>(null)
 
   return (
-    <aside className="w-60 shrink-0 bg-app-panel border-r border-app-border flex flex-col overflow-y-auto select-none">
+    <aside
+      style={{ width: sidebarWidth }}
+      className="shrink-0 bg-app-panel border-r border-app-border flex flex-col overflow-y-auto select-none"
+    >
       <div className="flex items-center justify-between h-9 px-3 border-b border-app-border shrink-0">
         <span className="text-[11px] uppercase tracking-wide text-app-muted">Repository</span>
         <IconButton title="Hide sidebar" onClick={toggleSidebar}>

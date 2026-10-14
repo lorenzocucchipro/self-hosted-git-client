@@ -7,23 +7,59 @@ export interface Prefs {
   autoFetchMinutes: number
   /** how the diff editor opens by default */
   defaultDiffView: 'inline' | 'split'
+  /** left sidebar visible */
+  sidebarOpen: boolean
+  /** left sidebar width in px */
+  sidebarWidth: number
+  /** right sidebar visible */
+  rightOpen: boolean
+  /** right sidebar width in px */
+  rightWidth: number
 }
 
 const KEY = 'app-prefs'
-const DEFAULTS: Prefs = { theme: 'dark', autoFetchMinutes: 5, defaultDiffView: 'split' }
+const DEFAULTS: Prefs = {
+  theme: 'dark',
+  autoFetchMinutes: 5,
+  defaultDiffView: 'split',
+  sidebarOpen: true,
+  sidebarWidth: 240,
+  rightOpen: true,
+  rightWidth: 504
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(Math.max(n, min), max)
+}
+
+function asBoolean(v: unknown, fallback: boolean): boolean {
+  return typeof v === 'boolean' ? v : fallback
+}
+
+function asNumber(v: unknown, fallback: number, min?: number, max?: number): number {
+  let n = typeof v === 'number' && !Number.isNaN(v) ? v : fallback
+  if (min !== undefined) n = Math.max(n, min)
+  if (max !== undefined) n = Math.min(n, max)
+  return n
+}
 
 export function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) {
       const p = JSON.parse(raw) as Partial<Prefs>
+      const centerMin = 480
+      const innerWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
+      const maxSidebar = Math.max(180, innerWidth - 504 - centerMin)
+      const maxRight = Math.max(360, innerWidth - 240 - centerMin)
       return {
         theme: p.theme === 'light' ? 'light' : 'dark',
-        autoFetchMinutes:
-          typeof p.autoFetchMinutes === 'number' && p.autoFetchMinutes >= 0
-            ? p.autoFetchMinutes
-            : DEFAULTS.autoFetchMinutes,
-        defaultDiffView: p.defaultDiffView === 'inline' ? 'inline' : 'split'
+        autoFetchMinutes: asNumber(p.autoFetchMinutes, DEFAULTS.autoFetchMinutes, 0),
+        defaultDiffView: p.defaultDiffView === 'inline' ? 'inline' : 'split',
+        sidebarOpen: asBoolean(p.sidebarOpen, DEFAULTS.sidebarOpen),
+        sidebarWidth: asNumber(p.sidebarWidth, DEFAULTS.sidebarWidth, 180, maxSidebar),
+        rightOpen: asBoolean(p.rightOpen, DEFAULTS.rightOpen),
+        rightWidth: asNumber(p.rightWidth, DEFAULTS.rightWidth, 360, maxRight)
       }
     }
   } catch {

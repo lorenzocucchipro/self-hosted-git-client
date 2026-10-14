@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { PanelLeft, PanelRight } from 'lucide-react'
 import { useStore } from './store/useStore'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
@@ -12,6 +13,7 @@ import { DetailPanel } from './components/DetailPanel'
 import { ChangesPanel } from './components/ChangesPanel'
 import { StatusBar } from './components/StatusBar'
 import { WelcomeScreen } from './components/WelcomeScreen'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { SshManager } from './components/SshManager'
 import { SettingsModal } from './components/SettingsModal'
 import { Toast } from './components/Toast'
@@ -23,6 +25,13 @@ export default function App(): React.JSX.Element {
   const selection = useStore((s) => s.selection)
   const editorOpen = useStore((s) => s.editorOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const sidebarWidth = useStore((s) => s.sidebarWidth)
+  const rightOpen = useStore((s) => s.rightOpen)
+  const rightWidth = useStore((s) => s.rightWidth)
+  const setSidebarWidth = useStore((s) => s.setSidebarWidth)
+  const setRightWidth = useStore((s) => s.setRightWidth)
+  const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const toggleRightSidebar = useStore((s) => s.toggleRightSidebar)
   const loadRecent = useStore((s) => s.loadRecent)
   const restoreSession = useStore((s) => s.restoreSession)
   const checkForUpdate = useStore((s) => s.checkForUpdate)
@@ -32,8 +41,7 @@ export default function App(): React.JSX.Element {
   const closeResolve = useStore((s) => s.closeResolve)
   const [sshOpen, setSshOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [rightWidth, setRightWidth] = useState(504)
-  const dragging = useRef(false)
+  const dragging = useRef<'left' | 'right' | null>(null)
   const sshOpenRef = useRef(sshOpen)
   sshOpenRef.current = sshOpen
 
@@ -125,19 +133,17 @@ export default function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const onMouseDown = useCallback(() => {
-    dragging.current = true
-    document.body.style.cursor = 'col-resize'
-  }, [])
-
   useEffect(() => {
     const onMove = (e: MouseEvent): void => {
       if (!dragging.current) return
-      const w = window.innerWidth - e.clientX
-      setRightWidth(Math.min(Math.max(w, 360), window.innerWidth - 500))
+      if (dragging.current === 'left') {
+        setSidebarWidth(e.clientX)
+      } else {
+        setRightWidth(window.innerWidth - e.clientX)
+      }
     }
     const onUp = (): void => {
-      dragging.current = false
+      dragging.current = null
       document.body.style.cursor = ''
     }
     window.addEventListener('mousemove', onMove)
@@ -146,7 +152,35 @@ export default function App(): React.JSX.Element {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [])
+  }, [setSidebarWidth, setRightWidth])
+
+  // Re-clamp sidebar widths when the window shrinks so the center pane never
+  // falls below its minimum.
+  useEffect(() => {
+    const onResize = (): void => {
+      const inner = window.innerWidth
+      const centerMin = 480
+      if (sidebarWidth + rightWidth > inner - centerMin) {
+        const extra = sidebarWidth + rightWidth - (inner - centerMin)
+        // Shrink the larger sidebar first, then the other if needed.
+        let left = sidebarWidth
+        let right = rightWidth
+        if (left >= right) {
+          const take = Math.min(extra, left - 180)
+          left -= take
+          right = Math.max(360, right - (extra - take))
+        } else {
+          const take = Math.min(extra, right - 360)
+          right -= take
+          left = Math.max(180, left - (extra - take))
+        }
+        setSidebarWidth(left)
+        setRightWidth(right)
+      }
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [sidebarWidth, rightWidth, setSidebarWidth, setRightWidth])
 
   return (
     <div className="h-screen flex flex-col bg-app-bg text-app-text">
@@ -159,20 +193,58 @@ export default function App(): React.JSX.Element {
           <Toolbar />
           <ConflictBar />
           <div className="flex-1 flex min-h-0">
-            {sidebarOpen && <Sidebar />}
+            {sidebarOpen ? (
+              <>
+                <ErrorBoundary fallback={<span>Sidebar failed to render.</span>}>
+                  <Sidebar />
+                </ErrorBoundary>
+                <div
+                  onMouseDown={() => {
+                    dragging.current = 'left'
+                    document.body.style.cursor = 'col-resize'
+                  }}
+                  className="w-1 cursor-col-resize bg-transparent hover:bg-app-accent/50 transition-colors shrink-0"
+                />
+              </>
+            ) : (
+              <button
+                onClick={toggleSidebar}
+                title="Show sidebar"
+                className="shrink-0 flex flex-col items-center justify-center w-3 bg-app-panel border-r border-app-border hover:bg-app-hover text-app-muted"
+              >
+                <PanelLeft size={14} />
+              </button>
+            )}
             <main className="flex-1 min-w-0 border-r border-app-border">
-              {editorOpen ? <DiffEditor /> : <CommitGraph />}
+              <ErrorBoundary fallback={<span>History failed to render.</span>}>
+                {editorOpen ? <DiffEditor /> : <CommitGraph />}
+              </ErrorBoundary>
             </main>
             <div
-              onMouseDown={onMouseDown}
+              onMouseDown={() => {
+                dragging.current = 'right'
+                document.body.style.cursor = 'col-resize'
+              }}
               className="w-1 cursor-col-resize bg-transparent hover:bg-app-accent/50 transition-colors shrink-0"
             />
-            <section
-              style={{ width: rightWidth }}
-              className="shrink-0 bg-app-panel overflow-hidden"
-            >
-              {selection?.type === 'wip' ? <ChangesPanel /> : <DetailPanel />}
-            </section>
+            {rightOpen ? (
+              <section
+                style={{ width: rightWidth }}
+                className="shrink-0 bg-app-panel overflow-hidden"
+              >
+                <ErrorBoundary fallback={<span>Detail panel failed to render.</span>}>
+                  {selection?.type === 'wip' ? <ChangesPanel /> : <DetailPanel />}
+                </ErrorBoundary>
+              </section>
+            ) : (
+              <button
+                onClick={toggleRightSidebar}
+                title="Show right sidebar"
+                className="shrink-0 flex flex-col items-center justify-center w-3 bg-app-panel border-l border-app-border hover:bg-app-hover text-app-muted"
+              >
+                <PanelRight size={14} />
+              </button>
+            )}
           </div>
           <StatusBar />
         </>
