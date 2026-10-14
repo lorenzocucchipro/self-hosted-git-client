@@ -17,6 +17,9 @@ dist
 # Devin agent — temporary plans (gitignored per project rules)
 .devin/plans/
 
+# Preliminary / scratch spec notes — not versioned
+specs-pre/
+
 # OS files
 .DS_Store
 Thumbs.db
