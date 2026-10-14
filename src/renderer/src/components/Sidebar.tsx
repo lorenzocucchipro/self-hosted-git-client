@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore'
 import { ContextMenu, useContextMenu, IconButton, type MenuItem } from './ui'
 import { ConfirmModal, PromptModal } from './PromptModal'
 import { RefTree } from './RefTree'
+import { useTruncatedTitle } from '../lib/useTruncatedTitle'
 
 export function Sidebar(): React.JSX.Element {
   const repo = useStore((s) => s.repo)
@@ -25,6 +26,7 @@ export function Sidebar(): React.JSX.Element {
   const cm = useContextMenu()
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
   const [rename, setRename] = useState<{ index: number; message: string } | null>(null)
+  const workingChangesTitle = useTruncatedTitle('Working changes')
 
   return (
     <aside
@@ -45,7 +47,7 @@ export function Sidebar(): React.JSX.Element {
         }`}
       >
         <FileEdit size={15} className="text-app-accent" />
-        <span className="flex-1">Working changes</span>
+        <span ref={workingChangesTitle.ref} onMouseEnter={workingChangesTitle.onMouseEnter} className="flex-1 truncate">Working changes</span>
         {changeCount > 0 && (
           <span className="px-1.5 h-[18px] inline-flex items-center rounded-full bg-app-accent text-app-accent-fg text-[10px] font-semibold">
             {changeCount}
@@ -71,10 +73,7 @@ export function Sidebar(): React.JSX.Element {
 
       <Section title="Remotes" icon={<Server size={13} />} count={remotes.length}>
         {remotes.map((r) => (
-          <div key={r.name} className="px-3 py-1 text-[12px]">
-            <div className="text-app-text">{r.name}</div>
-            <div className="text-app-muted text-[11px] truncate">{r.fetch}</div>
-          </div>
+          <RemoteRow key={r.name} name={r.name} fetch={r.fetch} />
         ))}
         {remotes.length === 0 && <Empty>No remotes configured</Empty>}
       </Section>
@@ -126,6 +125,17 @@ export function Sidebar(): React.JSX.Element {
   )
 }
 
+function RemoteRow({ name, fetch }: { name: string; fetch: string }): React.JSX.Element {
+  const remoteName = useTruncatedTitle(name)
+  const remoteFetch = useTruncatedTitle(fetch)
+  return (
+    <div className="px-3 py-1 text-[12px]">
+      <div ref={remoteName.ref} onMouseEnter={remoteName.onMouseEnter} className="text-app-text truncate">{name}</div>
+      <div ref={remoteFetch.ref} onMouseEnter={remoteFetch.onMouseEnter} className="text-app-muted text-[11px] truncate">{fetch}</div>
+    </div>
+  )
+}
+
 function StashRow({
   index,
   message,
@@ -140,6 +150,7 @@ function StashRow({
   setRename: (r: { index: number; message: string }) => void
 }): React.JSX.Element {
   const store = useStore.getState
+  const stashTitle = useTruncatedTitle(message)
   const items: MenuItem[] = [
     { label: 'Apply (keep stash)', onClick: () => store().stashApply(index) },
     { label: 'Apply and drop (pop)', onClick: () => store().stashPop(index) },
@@ -163,7 +174,7 @@ function StashRow({
       className="flex items-center gap-2 px-3 py-1 text-[12px] text-app-text hover:bg-app-hover cursor-default"
     >
       <Archive size={12} className="text-app-muted shrink-0" />
-      <span className="truncate">{message}</span>
+      <span ref={stashTitle.ref} onMouseEnter={stashTitle.onMouseEnter} className="truncate">{message}</span>
     </div>
   )
 }
@@ -180,6 +191,7 @@ function Section({
   children: React.ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
+  const sectionTitle = useTruncatedTitle(title)
   return (
     <div className="border-b border-app-border py-1">
       <button
@@ -188,7 +200,7 @@ function Section({
       >
         {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         <span className="text-app-muted">{icon}</span>
-        <span className="flex-1 text-left">{title}</span>
+        <span ref={sectionTitle.ref} onMouseEnter={sectionTitle.onMouseEnter} className="flex-1 text-left truncate">{title}</span>
         <span className="text-app-muted">{count}</span>
       </button>
       {open && <div className="pb-1">{children}</div>}

@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore'
 import { FileStatusBadge } from './FileStatusBadge'
 import { Button } from './ui'
 import { ConfirmModal } from './PromptModal'
+import { useTruncatedTitle } from '../lib/useTruncatedTitle'
 import type { FileChange } from '@shared/types'
 
 export function ChangesPanel(): React.JSX.Element {
@@ -53,20 +54,7 @@ export function ChangesPanel(): React.JSX.Element {
           <ListHeader title={`Conflicts (${status.conflicted.length})`} action={null} />
           <div className="max-h-44 overflow-auto">
             {status.conflicted.map((path) => (
-              <button
-                key={`c-${path}`}
-                onClick={() => openResolve(path)}
-                className="flex items-center gap-2 w-full px-3 py-1 text-left text-[12px] bg-app-warning/10 hover:bg-app-warning/20 border-l-2 border-app-warning"
-                title="Resolve this conflict in the merge editor"
-              >
-                <AlertTriangle size={13} className="text-app-warning shrink-0" />
-                <span className="truncate flex-1 text-app-text" title={path}>
-                  {path}
-                </span>
-                <span className="text-[10px] uppercase tracking-wide text-app-warning shrink-0">
-                  Resolve
-                </span>
-              </button>
+              <ConflictRow key={`c-${path}`} path={path} onResolve={() => openResolve(path)} />
             ))}
           </div>
         </div>
@@ -198,6 +186,25 @@ export function ChangesPanel(): React.JSX.Element {
   )
 }
 
+function ConflictRow({ path, onResolve }: { path: string; onResolve: () => void }): React.JSX.Element {
+  const conflictPathTitle = useTruncatedTitle(path)
+  return (
+    <button
+      onClick={onResolve}
+      className="flex items-center gap-2 w-full px-3 py-1 text-left text-[12px] bg-app-warning/10 hover:bg-app-warning/20 border-l-2 border-app-warning"
+      title="Resolve this conflict in the merge editor"
+    >
+      <AlertTriangle size={13} className="text-app-warning shrink-0" />
+      <span ref={conflictPathTitle.ref} onMouseEnter={conflictPathTitle.onMouseEnter} className="truncate flex-1 text-app-text">
+        {path}
+      </span>
+      <span className="text-[10px] uppercase tracking-wide text-app-warning shrink-0">
+        Resolve
+      </span>
+    </button>
+  )
+}
+
 function ChangeRow({
   file,
   active,
@@ -211,6 +218,7 @@ function ChangeRow({
   onClick: () => void
   actions: React.ReactNode
 }): React.JSX.Element {
+  const filePathTitle = useTruncatedTitle(file.path)
   return (
     <div
       ref={innerRef}
@@ -220,7 +228,7 @@ function ChangeRow({
       }`}
     >
       <FileStatusBadge status={file.kind} />
-      <span className="truncate flex-1 text-app-text" title={file.path}>
+      <span ref={filePathTitle.ref} onMouseEnter={filePathTitle.onMouseEnter} className="truncate flex-1 text-app-text">
         {file.path}
       </span>
       <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">{actions}</span>

@@ -59,7 +59,7 @@ function CommitRowComponent({
     >
       <GraphCell row={row} commit={commit} graphWidth={graphWidth} rowHeight={ROW_H} />
 
-      <div className="overflow-hidden flex items-center gap-1 py-1 pl-1 pr-2">
+      <div className="min-w-0 relative flex items-center gap-1 py-1 pl-1 pr-2">
         <RefLabels
           title={commit.refs.map((r) => r.name).join(', ')}
           labels={[

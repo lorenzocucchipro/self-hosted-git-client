@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore'
 import { fullDate } from '../lib/format'
 import { FileStatusBadge } from './FileStatusBadge'
 import { Avatar } from './Avatar'
+import { useTruncatedTitle } from '../lib/useTruncatedTitle'
 import type { DiffFile } from '@shared/types'
 
 export function DetailPanel(): React.JSX.Element {
@@ -96,8 +97,7 @@ export function DetailPanel(): React.JSX.Element {
           />
           <div className="min-w-0 flex-1">
             <div className="text-app-muted text-[12px] mt-1">
-              <span className="text-app-text">{commit.author}</span>{' '}
-              <span className="selectable">{`<${commit.authorEmail}>`}</span> · {fullDate(commit.date)}
+              <AuthorLine author={commit.author} email={commit.authorEmail} date={commit.date} />
             </div>
           </div>
           {!commit.pushed && !commit.refs.some((r) => r.type === 'stash') && (
@@ -216,6 +216,8 @@ function FileRow({
   innerRef?: (el: HTMLButtonElement | null) => void
   onClick: () => void
 }): React.JSX.Element {
+  const filePath = file.newPath || file.oldPath
+  const filePathTitle = useTruncatedTitle(filePath)
   return (
     <button
       ref={innerRef}
@@ -225,9 +227,19 @@ function FileRow({
       }`}
     >
       <FileStatusBadge status={file.status} />
-      <span className="truncate flex-1 text-app-text">{file.newPath || file.oldPath}</span>
+      <span ref={filePathTitle.ref} onMouseEnter={filePathTitle.onMouseEnter} className="truncate flex-1 text-app-text">{filePath}</span>
       <span className="text-app-success text-[11px] shrink-0">+{file.additions}</span>
       <span className="text-app-danger text-[11px] shrink-0">−{file.deletions}</span>
     </button>
+  )
+}
+
+function AuthorLine({ author, email, date }: { author: string; email: string; date: string }): React.ReactNode {
+  const authorTitle = useTruncatedTitle(`${author} <${email}>`)
+  return (
+    <>
+      <span ref={authorTitle.ref} onMouseEnter={authorTitle.onMouseEnter} className="text-app-text truncate">{author}</span>{' '}
+      <span className="selectable">{`<${email}>`}</span> · {fullDate(date)}
+    </>
   )
 }
