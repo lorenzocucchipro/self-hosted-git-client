@@ -183,6 +183,14 @@ export interface ColumnWidths {
   sha: number
 }
 
+/** Snapshot of the diff view state when toggling back to the graph. */
+export interface EditorSnapshot {
+  filePath: string
+  commitHash: string
+  editorSearchOpen: boolean
+  editorSearchQuery: string
+}
+
 export interface CommitOptions {
   message: string
   amend?: boolean
