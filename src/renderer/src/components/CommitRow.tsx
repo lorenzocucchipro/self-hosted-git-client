@@ -1,6 +1,5 @@
 import React, { useRef, useState, useLayoutEffect } from 'react'
 import { CloudOff } from 'lucide-react'
-import type { ColumnWidths } from '@shared/types'
 import type { Commit, CommitRef } from '@shared/types'
 import type { GraphRow } from '../lib/graph'
 import { relativeTime } from '../lib/format'
@@ -16,7 +15,7 @@ interface CommitRowProps {
   row: GraphRow
   commit: Commit
   graphWidth: number
-  columnWidths: ColumnWidths
+  gridTemplateColumns: string
   selected: boolean
   dimmed: boolean
   currentBranch: string | null
@@ -31,7 +30,7 @@ function CommitRowComponent({
   row,
   commit,
   graphWidth,
-  columnWidths,
+  gridTemplateColumns,
   selected,
   dimmed,
   currentBranch,
@@ -43,22 +42,12 @@ function CommitRowComponent({
 }: CommitRowProps): React.JSX.Element {
   const isStash = commit.refs.some((r) => r.type === 'stash')
 
-  const [rowH, setRowH] = useState(ROW_H)
-  const rowRef = useRef<HTMLDivElement | null>(null)
-
-  useLayoutEffect(() => {
-    const el = rowRef.current
-    if (!el) return
-    const h = el.clientHeight
-    setRowH((prev) => (prev !== h ? h : prev))
-  }, [commit.refs, graphWidth, columnWidths])
-
   return (
     <div
-      ref={rowRef}
       onClick={onClick}
       onContextMenu={onMenu}
-      className={`grid items-center min-h-[34px] border-b border-app-border/50 cursor-pointer transition-opacity ${
+      style={{ gridTemplateColumns }}
+      className={`grid items-center h-[34px] border-b border-app-border/50 cursor-pointer transition-opacity ${
         dimmed ? 'opacity-25' : ''
       } ${
         selected
@@ -68,7 +57,7 @@ function CommitRowComponent({
             : 'hover:bg-app-hover'
       }`}
     >
-      <GraphCell row={row} commit={commit} graphWidth={graphWidth} rowHeight={rowH} />
+      <GraphCell row={row} commit={commit} graphWidth={graphWidth} rowHeight={ROW_H} />
 
       <div className="overflow-hidden flex items-center gap-1 py-1 pl-1 pr-2">
         <RefLabels

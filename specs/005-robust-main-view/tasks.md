@@ -247,3 +247,12 @@ Each chunk adds value without breaking previous chunks. Each can be committed an
 - Commit after each chunk (not after each task) — one cohesive change per commit, Conventional Commits.
 - Never commit to `main` directly — work on a branch, open a PR.
 - Use `app-*` Tailwind tokens for all new UI — never hardcode hex colors.
+
+---
+
+## Phase 9: Convergence
+
+**Purpose**: Fix the broken graph view — rows are not aligned to header columns and the graph SVG grows unboundedly. Both root causes are in `CommitRow.tsx`.
+
+- [x] T040 [US1] Apply `gridTemplateColumns` to the `CommitRow` root div in `src/renderer/src/components/CommitRow.tsx`. The row's root div (line 57) has `className="grid items-center min-h-[34px] …"` but no `style={{ gridTemplateColumns }}`. The header (`CommitTable.tsx:172`) and WIP row (`CommitTable.tsx:215`) both apply the grid template from `buildGridLayout()`, but CSS `grid-template-columns` is NOT inherited from a parent — it must be set explicitly on each grid container. Without it, the row's 6 children (GraphCell + 5 column divs) stack in a single implicit column, completely misaligning with the header. Fix: either pass `gridTemplateColumns` as a prop from `CommitTable`/`VirtualCommitRow` (which already computes it at `CommitTable.tsx:79-82`), or compute it inside `CommitRow` from the existing `columnWidths` + `graphWidth` props via `buildGridLayout()`. Apply it as `style={{ gridTemplateColumns }}` on the root div. per FR-002, SC-002, US1/AC1 (contradicts)
+- [x] T041 [US1] Remove the self-referential row-height measurement in `src/renderer/src/components/CommitRow.tsx` (lines 46-54). The `rowH` state is set from `el.clientHeight` (the row's own height) via `useLayoutEffect`, then passed to `GraphCell` as `rowHeight` (the SVG height). This is self-referential: the SVG height contributes to the row height, which is measured and fed back to the SVG. When the row stacks (T040 not yet applied), this creates an unbounded feedback loop — the SVG grows, the row grows, the SVG grows again — producing the gigantic graph. Even with T040 fixed, this measurement is redundant: the virtualizer already measures row height via `measureElement` (`CommitTable.tsx:119`). Fix: remove the `rowH` state and the `useLayoutEffect`; use the constant `ROW_H` (34) for `GraphCell`'s `rowHeight` prop; change `min-h-[34px]` to `h-[34px]` on the root div. per FR-009, SC-001, US1/AC4 (partial)

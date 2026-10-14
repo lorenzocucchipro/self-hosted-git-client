@@ -237,7 +237,7 @@ export function CommitTable({
                   byHash={byHash}
                   stashes={stashes}
                   graphWidth={graphWidth}
-                  columnWidths={columnWidths}
+                  gridTemplateColumns={gridTemplateColumns}
                   selection={selection}
                   searchMatches={searchMatches}
                   currentBranch={currentBranch}
@@ -266,7 +266,7 @@ interface VirtualCommitRowProps {
   byHash: Map<string, Commit>
   stashes: Stash[]
   graphWidth: number
-  columnWidths: ColumnWidths
+  gridTemplateColumns: string
   selection: Selection
   searchMatches: Set<string> | null
   currentBranch: string | null
@@ -280,7 +280,7 @@ const VirtualCommitRow = React.memo(function VirtualCommitRow({
   byHash,
   stashes,
   graphWidth,
-  columnWidths,
+  gridTemplateColumns,
   selection,
   searchMatches,
   currentBranch,
@@ -324,7 +324,7 @@ const VirtualCommitRow = React.memo(function VirtualCommitRow({
       row={row}
       commit={commit}
       graphWidth={graphWidth}
-      columnWidths={columnWidths}
+      gridTemplateColumns={gridTemplateColumns}
       selected={!!selected}
       dimmed={!!searchMatches && !searchMatches.has(row.hash)}
       currentBranch={currentBranch}
