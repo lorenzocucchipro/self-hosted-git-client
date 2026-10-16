@@ -199,6 +199,10 @@ export interface SshAccessResult {
   workingKey?: string
   /** all keys found in ~/.ssh */
   availableKeys: SshKey[]
+  /** set when the SSH connection itself failed (timeout, unreachable, refused).
+   *  When present, hasWorkingKey is always false and the UI should show a
+   *  network/VPN message instead of "add your key". */
+  connectionError?: string
 }
 
 /** Result of checking whether HTTPS credentials are stored for a host. */

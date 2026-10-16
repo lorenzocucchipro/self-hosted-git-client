@@ -122,6 +122,7 @@ function SshPath({ host, onConnected }: { host: string; onConnected: () => void 
   }
 
   const ok = access?.hasWorkingKey === true
+  const connError = access?.connectionError
 
   return (
     <div className="space-y-4">
@@ -143,6 +144,13 @@ function SshPath({ host, onConnected }: { host: string; onConnected: () => void 
             <Check size={16} className="text-app-success" />
             <span className="text-[13px] text-app-text">
               SSH access works — key "{access?.workingKey ?? 'unknown'}" is accepted by {host}.
+            </span>
+          </>
+        ) : connError ? (
+          <>
+            <X size={16} className="text-app-danger" />
+            <span className="text-[13px] text-app-text">
+              Could not connect to {host} — the SSH server is unreachable. Check your network connection or VPN, then retry.
             </span>
           </>
         ) : (

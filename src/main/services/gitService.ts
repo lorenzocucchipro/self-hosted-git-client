@@ -1052,6 +1052,7 @@ export const gitService = {
 
     let hasWorkingKey = false
     let workingKey: string | undefined
+    let connectionError: string | undefined
 
     for (const keyPath of attempts) {
       const args = ['-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5']
@@ -1091,12 +1092,19 @@ export const gitService = {
             : extractKeyFromSshOutput(stderr)
           break
         }
+        // Connection-level failures (timeout, unreachable, refused) mean the
+        // server is not reachable at all — no key will help. Detect once and
+        // stop trying remaining keys.
+        if (err.code === 255 && /timed out|Connection refused|Connection closed|Could not resolve hostname|Network is unreachable/i.test(stderr)) {
+          connectionError = stderr.trim()
+          break
+        }
         // exit 255 with "Permission denied" → this key doesn't work, try next
         // any other error → also try next key
       }
     }
 
-    return { host, hasWorkingKey, workingKey, availableKeys }
+    return { host, hasWorkingKey, workingKey, availableKeys, connectionError }
   }
 }
 
