@@ -9,10 +9,12 @@ import type {
   GenerateSshKeyOptions,
   MergeOperation,
   RebaseTodoItem,
-  ColumnWidths
+  ColumnWidths,
+  ConfigScope
 } from '@shared/types'
 import { gitService } from './services/gitService'
 import { sshService } from './services/sshService'
+import { credService } from './services/credService'
 import { store } from './services/store'
 import { updateService } from './services/updateService'
 import { isSafeExternalUrl } from './security'
@@ -193,9 +195,24 @@ export function registerIpcHandlers(): void {
   )
 
   handle(Channels.getUserConfig, (path: string) => gitService.getUserConfig(path))
-  handle(Channels.setUserConfig, (path: string, name: string, email: string) =>
-    gitService.setUserConfig(path, name, email)
+  handle(Channels.setUserConfig, (path: string, name: string, email: string, scope: ConfigScope) =>
+    gitService.setUserConfig(path, name, email, scope)
   )
+
+  // --- connection & credentials ---
+  handle(Channels.testSshAccess, (host: string) => gitService.testSshAccess(host))
+  handle(Channels.checkHttpsCredentials, (host: string) => credService.checkHttpsCredentials(host))
+  handle(Channels.storeHttpsCredentials, (host: string, username: string, password: string) =>
+    credService.storeHttpsCredentials(host, username, password)
+  )
+  handle(Channels.removeHttpsCredentials, (host: string) =>
+    credService.removeHttpsCredentials(host)
+  )
+  handle(Channels.testHttpsAccess, (url: string) => credService.testHttpsAccess(url))
+  handle(Channels.setRemoteUrl, (repoPath: string, name: string, url: string) =>
+    gitService.setRemoteUrl(repoPath, name, url)
+  )
+  handle(Channels.getGlobalUserConfig, () => gitService.getGlobalUserConfig())
 
   // --- ssh ---
   handle(Channels.listSshKeys, () => sshService.listKeys())

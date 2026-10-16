@@ -151,7 +151,9 @@ export function MergeResolver({
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-app-bg">
       {/* toolbar */}
-      <div className="shrink-0 flex items-center gap-3 h-10 px-3 bg-app-panel border-b border-app-border">
+      <div className="drag-region shrink-0 flex items-center gap-3 h-10 px-3 bg-app-panel border-b border-app-border">
+        {/* leave room for macOS traffic lights */}
+        <div className="w-16 shrink-0" />
         <AlertTriangle size={15} className="text-app-warning shrink-0" />
         <span className="truncate text-[13px] text-app-text font-medium" title={file}>
           {file}

@@ -83,6 +83,15 @@ export const Channels = {
   // config
   getUserConfig: 'git:getUserConfig',
   setUserConfig: 'git:setUserConfig',
+  getGlobalUserConfig: 'git:getGlobalUserConfig',
+  setRemoteUrl: 'git:setRemoteUrl',
+  testSshAccess: 'git:testSshAccess',
+
+  // credentials
+  checkHttpsCredentials: 'cred:check',
+  storeHttpsCredentials: 'cred:store',
+  removeHttpsCredentials: 'cred:remove',
+  testHttpsAccess: 'cred:test',
 
   // ssh
   listSshKeys: 'ssh:list',

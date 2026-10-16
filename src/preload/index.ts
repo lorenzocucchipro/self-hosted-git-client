@@ -24,7 +24,12 @@ import type {
   UndoInfo,
   RebaseCommit,
   RebaseTodoItem,
-  ColumnWidths
+  ColumnWidths,
+  ConfigScope,
+  UserConfigResult,
+  SshAccessResult,
+  HttpsCredentialStatus,
+  HttpsAccessResult
 } from '@shared/types'
 
 const invoke = <T>(channel: string, ...args: unknown[]): Promise<IpcResult<T>> =>
@@ -134,10 +139,22 @@ const api = {
     invoke<void>(Channels.addRemote, path, name, url),
   removeRemote: (path: string, name: string) => invoke<void>(Channels.removeRemote, path, name),
 
-  getUserConfig: (path: string) =>
-    invoke<{ name: string; email: string }>(Channels.getUserConfig, path),
-  setUserConfig: (path: string, name: string, email: string) =>
-    invoke<void>(Channels.setUserConfig, path, name, email),
+  getUserConfig: (path: string) => invoke<UserConfigResult>(Channels.getUserConfig, path),
+  setUserConfig: (path: string, name: string, email: string, scope: ConfigScope) =>
+    invoke<void>(Channels.setUserConfig, path, name, email, scope),
+
+  getGlobalUserConfig: () => invoke<{ name: string; email: string }>(Channels.getGlobalUserConfig),
+  setRemoteUrl: (repoPath: string, name: string, url: string) =>
+    invoke<void>(Channels.setRemoteUrl, repoPath, name, url),
+  testSshAccess: (host: string) => invoke<SshAccessResult>(Channels.testSshAccess, host),
+
+  checkHttpsCredentials: (host: string) =>
+    invoke<HttpsCredentialStatus>(Channels.checkHttpsCredentials, host),
+  storeHttpsCredentials: (host: string, username: string, password: string) =>
+    invoke<void>(Channels.storeHttpsCredentials, host, username, password),
+  removeHttpsCredentials: (host: string) =>
+    invoke<void>(Channels.removeHttpsCredentials, host),
+  testHttpsAccess: (url: string) => invoke<HttpsAccessResult>(Channels.testHttpsAccess, url),
 
   // ssh
   listSshKeys: () => invoke<SshKey[]>(Channels.listSshKeys),

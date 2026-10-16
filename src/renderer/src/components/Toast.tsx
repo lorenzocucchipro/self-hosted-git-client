@@ -22,6 +22,17 @@ export function Toast(): React.JSX.Element | null {
         <span className="text-[13px] text-app-text whitespace-pre-wrap break-words selectable flex-1">
           {toast.message}
         </span>
+        {toast.action && (
+          <button
+            onClick={() => {
+              toast.action!.onClick()
+              showToast(null)
+            }}
+            className="shrink-0 px-2 py-0.5 rounded text-[12px] bg-app-accent text-app-accent-fg hover:opacity-90"
+          >
+            {toast.action.label}
+          </button>
+        )}
         <button
           onClick={() => showToast(null)}
           className="text-app-muted hover:text-app-text shrink-0"

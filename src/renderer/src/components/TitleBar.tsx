@@ -1,15 +1,20 @@
 import React from 'react'
-import { GitBranch, KeyRound, Sun, Moon, Home, RefreshCw, Settings } from 'lucide-react'
+import { GitBranch, KeyRound, Sun, Moon, Home, RefreshCw, Settings, Plug, Check, X, Globe } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { branding } from '../branding'
 import { IconButton, Spinner } from './ui'
+import { api, call } from '../lib/ipc'
+import { detectProtocol, extractHost } from '../lib/remoteUrl'
+import type { RemoteProtocol } from '@shared/types'
 
 export function TitleBar({
   onOpenSsh,
-  onOpenSettings
+  onOpenSettings,
+  onOpenConnection
 }: {
   onOpenSsh: () => void
   onOpenSettings: () => void
+  onOpenConnection: (host: string, protocol: RemoteProtocol, remoteUrl?: string) => void
 }): React.JSX.Element {
   const repo = useStore((s) => s.repo)
   const theme = useStore((s) => s.theme)
@@ -17,6 +22,23 @@ export function TitleBar({
   const closeRepo = useStore((s) => s.closeRepo)
   const refreshAll = useStore((s) => s.refreshAll)
   const busy = useStore((s) => s.busy)
+  const connectionStatus = useStore((s) => s.connectionStatus)
+
+  const openConnection = async (): Promise<void> => {
+    if (!repo) return
+    try {
+      const remotes = await call(api.getRemotes(repo.path))
+      const primary = remotes.find((r) => r.name === 'origin') ?? remotes[0]
+      if (!primary) return
+      const url = primary.fetch || primary.push
+      if (!url) return
+      const protocol = detectProtocol(url)
+      const host = extractHost(url)
+      onOpenConnection(host, protocol, url)
+    } catch {
+      /* no remotes */
+    }
+  }
 
   return (
     <header className="drag-region flex items-center h-11 px-3 bg-app-panel border-b border-app-border shrink-0">
@@ -36,6 +58,30 @@ export function TitleBar({
               <GitBranch size={11} className="text-app-accent" />
               {repo.isDetached ? `detached @ ${repo.currentBranch}` : repo.currentBranch}
             </span>
+            {/* Connection status badge */}
+            {connectionStatus && (
+              <button
+                onClick={openConnection}
+                className="no-drag flex items-center gap-1 px-2 py-0.5 rounded-full bg-app-panel-2 border border-app-border text-[11px] text-app-text hover:bg-app-hover transition-colors"
+                title={`Connection: ${connectionStatus.protocol.toUpperCase()} — ${connectionStatus.host}`}
+              >
+                {connectionStatus.protocol === 'ssh' ? (
+                  <KeyRound size={11} className="text-app-accent" />
+                ) : (
+                  <Globe size={11} className="text-app-accent" />
+                )}
+                {connectionStatus.protocol === 'ssh'
+                  ? (connectionStatus.sshKey ?? 'no key')
+                  : (connectionStatus.httpsUsername ?? 'no creds')}
+                {connectionStatus.protocol === 'ssh'
+                  ? (connectionStatus.sshOk
+                    ? <Check size={11} className="text-app-success" />
+                    : <X size={11} className="text-app-danger" />)
+                  : (connectionStatus.httpsOk
+                    ? <Check size={11} className="text-app-success" />
+                    : <X size={11} className="text-app-danger" />)}
+              </button>
+            )}
           </>
         )}
       </div>
@@ -47,6 +93,11 @@ export function TitleBar({
         {repo && (
           <IconButton title="Refresh" onClick={() => refreshAll()}>
             <RefreshCw size={16} />
+          </IconButton>
+        )}
+        {repo && (
+          <IconButton title="Connection" onClick={openConnection}>
+            <Plug size={16} />
           </IconButton>
         )}
         <IconButton title="SSH keys" onClick={onOpenSsh}>

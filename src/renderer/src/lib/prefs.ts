@@ -1,4 +1,5 @@
 import type { ThemeMode } from '../branding'
+import type { GitProfile } from '@shared/types'
 
 /** User preferences persisted locally (renderer-side, survives restarts). */
 export interface Prefs {
@@ -15,6 +16,8 @@ export interface Prefs {
   rightOpen: boolean
   /** right sidebar width in px */
   rightWidth: number
+  /** saved git identity profiles */
+  profiles: GitProfile[]
 }
 
 const KEY = 'app-prefs'
@@ -25,7 +28,8 @@ const DEFAULTS: Prefs = {
   sidebarOpen: true,
   sidebarWidth: 240,
   rightOpen: true,
-  rightWidth: 504
+  rightWidth: 504,
+  profiles: []
 }
 
 function clamp(n: number, min: number, max: number): number {
@@ -59,7 +63,8 @@ export function loadPrefs(): Prefs {
         sidebarOpen: asBoolean(p.sidebarOpen, DEFAULTS.sidebarOpen),
         sidebarWidth: asNumber(p.sidebarWidth, DEFAULTS.sidebarWidth, 180, maxSidebar),
         rightOpen: asBoolean(p.rightOpen, DEFAULTS.rightOpen),
-        rightWidth: asNumber(p.rightWidth, DEFAULTS.rightWidth, 360, maxRight)
+        rightWidth: asNumber(p.rightWidth, DEFAULTS.rightWidth, 360, maxRight),
+        profiles: Array.isArray(p.profiles) ? p.profiles : []
       }
     }
   } catch {

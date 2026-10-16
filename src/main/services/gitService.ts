@@ -2,7 +2,10 @@ import { simpleGit, SimpleGit } from 'simple-git'
 import { promises as fs } from 'fs'
 import { join, basename } from 'path'
 import { tmpdir } from 'os'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { parseUnifiedDiff } from './diffParser'
+import { sshService } from './sshService'
 import { assertSafeGitUrl, assertSafeGitArg } from '../security'
 import type {
   RepoInfo,
@@ -22,7 +25,10 @@ import type {
   MergeOperation,
   UndoInfo,
   RebaseCommit,
-  RebaseTodoItem
+  RebaseTodoItem,
+  ConfigScope,
+  UserConfigResult,
+  SshAccessResult
 } from '@shared/types'
 
 const FIELD = '\x1f'
@@ -38,10 +44,15 @@ const FULL_CONTEXT = '-U100000'
 // being *loosened* to `always`); we opt in via `allowUnsafeProtocolOverride`
 // precisely so we can *tighten* it to `never`. The value is a hard-coded
 // constant here and never derived from user input.
+const CRED_HELPER =
+  process.platform === 'darwin' ? 'osxkeychain' : process.platform === 'win32' ? 'manager' : 'store'
+
 const HARDENED_GIT = {
-  config: ['protocol.ext.allow=never'],
-  unsafe: { allowUnsafeProtocolOverride: true }
+  config: ['protocol.ext.allow=never', `credential.helper=${CRED_HELPER}`],
+  unsafe: { allowUnsafeProtocolOverride: true, allowUnsafeCredentialHelper: true }
 }
+
+const execFileAsync = promisify(execFile)
 
 /** Caches one SimpleGit instance per repository path. */
 const cache = new Map<string, SimpleGit>()
@@ -965,21 +976,138 @@ export const gitService = {
     await git(repoPath).removeRemote(name)
   },
 
-  async getUserConfig(repoPath: string): Promise<{ name: string; email: string }> {
+  async getUserConfig(repoPath: string): Promise<UserConfigResult> {
     const g = git(repoPath)
-    const name = (await g.raw(['config', 'user.name']).catch(() => '')).trim()
-    const email = (await g.raw(['config', 'user.email']).catch(() => '')).trim()
+    const localName = (await g.raw(['config', '--local', 'user.name']).catch(() => '')).trim()
+    const globalName = (await g.raw(['config', '--global', 'user.name']).catch(() => '')).trim()
+    const effectiveName = (await g.raw(['config', 'user.name']).catch(() => '')).trim()
+    const localEmail = (await g.raw(['config', '--local', 'user.email']).catch(() => '')).trim()
+    const globalEmail = (await g.raw(['config', '--global', 'user.email']).catch(() => '')).trim()
+    const effectiveEmail = (await g.raw(['config', 'user.email']).catch(() => '')).trim()
+
+    const nameScope: 'local' | 'global' | 'none' = localName
+      ? 'local'
+      : globalName
+        ? 'global'
+        : 'none'
+    const emailScope: 'local' | 'global' | 'none' = localEmail
+      ? 'local'
+      : globalEmail
+        ? 'global'
+        : 'none'
+
+    return {
+      name: effectiveName,
+      email: effectiveEmail,
+      nameScope,
+      emailScope
+    }
+  },
+
+  async setUserConfig(repoPath: string, name: string, email: string, scope: ConfigScope): Promise<void> {
+    const g = git(repoPath)
+    const flag = scope === 'global' ? '--global' : '--local'
+    if (name) await g.raw(['config', flag, 'user.name', name])
+    if (email) await g.raw(['config', flag, 'user.email', email])
+  },
+
+  async getGlobalUserConfig(): Promise<{ name: string; email: string }> {
+    const g = simpleGit({ ...HARDENED_GIT })
+    const name = (await g.raw(['config', '--global', 'user.name']).catch(() => '')).trim()
+    const email = (await g.raw(['config', '--global', 'user.email']).catch(() => '')).trim()
     return { name, email }
   },
 
-  async setUserConfig(repoPath: string, name: string, email: string): Promise<void> {
-    const g = git(repoPath)
-    if (name) await g.raw(['config', 'user.name', name])
-    if (email) await g.raw(['config', 'user.email', email])
+  async setRemoteUrl(repoPath: string, name: string, url: string): Promise<void> {
+    assertSafeGitArg(name, 'remote name')
+    assertSafeGitUrl(url)
+    await git(repoPath).raw(['remote', 'set-url', name, url])
+  },
+
+  async testSshAccess(host: string): Promise<SshAccessResult> {
+    assertSafeGitArg(host, 'host')
+    const availableKeys = await sshService.listKeys()
+
+    // The host may include a port (e.g. "gitlab.example.com:20100" from
+    // ssh://host:port/path). SSH for git always uses the username "git".
+    // Parse the host:port and build the correct ssh target.
+    let hostname = host
+    let port: number | undefined
+    const colonIdx = host.lastIndexOf(':')
+    if (colonIdx > 0 && /^\d+$/.test(host.slice(colonIdx + 1))) {
+      hostname = host.slice(0, colonIdx)
+      port = parseInt(host.slice(colonIdx + 1), 10)
+    }
+    const sshTarget = `git@${hostname}`
+
+    // Try SSH access. First with the default agent/config (no -i), then
+    // fall back to trying each available private key explicitly with -i so
+    // non-default key names are tested even without an ~/.ssh/config entry.
+    const keyPaths = availableKeys
+      .filter((k) => k.privatePath)
+      .map((k) => k.privatePath)
+
+    // Build the list of attempts: first the default (no -i), then each key.
+    const attempts: (string | null)[] = [null, ...keyPaths]
+
+    let hasWorkingKey = false
+    let workingKey: string | undefined
+
+    for (const keyPath of attempts) {
+      const args = ['-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5']
+      if (port) {
+        args.push('-p', String(port))
+      }
+      if (keyPath) {
+        args.push('-i', keyPath)
+        // Skip host key checking for non-default keys to avoid blocking
+        args.push('-o', 'StrictHostKeyChecking=accept-new')
+      }
+      args.push(sshTarget)
+
+      try {
+        const { stdout, stderr } = await execFileAsync('ssh', args)
+        // exit code 0 → success (some providers return 0)
+        hasWorkingKey = true
+        workingKey = keyPath
+          ? keyPath.split('/').pop()?.replace(/\.pub$/, '')
+          : extractKeyFromSshOutput(stderr)
+        void stdout
+        break
+      } catch (e) {
+        const err = e as { code?: number; stderr?: string }
+        const stderr = err.stderr ?? ''
+        // Many git hosts close the SSH session with exit code 1 after a
+        // successful authentication (they don't provide a shell). The welcome
+        // message differs per provider:
+        //   GitHub:  "Hi username! You've successfully authenticated..."
+        //   GitLab:  "Welcome to GitLab, @username!"
+        //   Gitea:   "Hi there, You've successfully authenticated..."
+        //   Bitbucket: "logged in as username"
+        if (err.code === 1 && /Hi |Welcome to GitLab|successfully authenticated|logged in as/i.test(stderr)) {
+          hasWorkingKey = true
+          workingKey = keyPath
+            ? keyPath.split('/').pop()?.replace(/\.pub$/, '')
+            : extractKeyFromSshOutput(stderr)
+          break
+        }
+        // exit 255 with "Permission denied" → this key doesn't work, try next
+        // any other error → also try next key
+      }
+    }
+
+    return { host, hasWorkingKey, workingKey, availableKeys }
   }
 }
 
 // --- helpers ---------------------------------------------------------------
+
+/** Extract the key name from SSH verbose output like "Offering public key: /path/to/key.pub" */
+function extractKeyFromSshOutput(stderr: string): string | undefined {
+  const m = stderr.match(/Offering public key: ([^\s]+)/)
+  if (m) return m[1].split('/').pop()?.replace(/\.pub$/, '')
+  return undefined
+}
 
 function deriveRepoName(url: string): string {
   const clean = url.replace(/\.git$/, '').replace(/\/$/, '')

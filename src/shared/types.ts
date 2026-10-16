@@ -171,6 +171,71 @@ export interface GenerateSshKeyOptions {
   passphrase: string
 }
 
+// --- Connection & Identity --------------------------------------------------
+
+/** A named git identity stored in the renderer's localStorage. */
+export interface GitProfile {
+  /** stable unique identifier (UUID via crypto.randomUUID()) */
+  id: string
+  /** human-readable label, e.g. "Work account" */
+  label: string
+  /** value for `git config user.name` */
+  name: string
+  /** value for `git config user.email` */
+  email: string
+}
+
+/** Detected protocol from a remote URL. */
+export type RemoteProtocol = 'https' | 'ssh'
+
+/** Scope at which a git config value is written. */
+export type ConfigScope = 'local' | 'global'
+
+/** Result of testing SSH access to a host. */
+export interface SshAccessResult {
+  host: string
+  hasWorkingKey: boolean
+  /** name of the key that worked (undefined if none) */
+  workingKey?: string
+  /** all keys found in ~/.ssh */
+  availableKeys: SshKey[]
+}
+
+/** Result of checking whether HTTPS credentials are stored for a host. */
+export interface HttpsCredentialStatus {
+  host: string
+  stored: boolean
+  /** stored username (undefined if not stored). Password is never returned. */
+  username?: string
+}
+
+/** Result of a live HTTPS connection test. */
+export interface HttpsAccessResult {
+  success: boolean
+  username?: string
+  error?: string
+}
+
+/** The authentication state of a repository's primary remote. Used by the badge. */
+export interface ConnectionStatus {
+  protocol: RemoteProtocol
+  host: string
+  /** SSH key name (SSH only) */
+  sshKey?: string
+  sshOk: boolean
+  /** stored username (HTTPS only) */
+  httpsUsername?: string
+  httpsOk: boolean
+}
+
+/** The current git identity for a repository with the source of each value. */
+export interface UserConfigResult {
+  name: string
+  email: string
+  nameScope: 'local' | 'global' | 'none'
+  emailScope: 'local' | 'global' | 'none'
+}
+
 // --- IPC payloads -----------------------------------------------------------
 
 /** User-chosen widths (px) for the five resizable commit-history columns.

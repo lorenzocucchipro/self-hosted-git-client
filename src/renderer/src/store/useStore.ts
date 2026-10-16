@@ -19,7 +19,10 @@ import type {
   UndoInfo,
   RebaseTodoItem,
   ColumnWidths,
-  EditorSnapshot
+  EditorSnapshot,
+  GitProfile,
+  ConnectionStatus,
+  RemoteProtocol
 } from '@shared/types'
 
 /** Debounce handle for the git-backed part of the search (filenames + code). */
@@ -45,7 +48,8 @@ function saveAllPrefs(get: () => AppState): void {
     sidebarOpen: s.sidebarOpen,
     sidebarWidth: s.sidebarWidth,
     rightOpen: s.rightOpen,
-    rightWidth: s.rightWidth
+    rightWidth: s.rightWidth,
+    profiles: s.profiles
   })
 }
 
@@ -78,6 +82,8 @@ export type DiffViewMode = 'inline' | 'split'
 export interface Toast {
   kind: 'info' | 'success' | 'error'
   message: string
+  /** optional action button shown in the toast (e.g. "Set up connection") */
+  action?: { label: string; onClick: () => void }
 }
 
 interface AppState {
@@ -143,6 +149,12 @@ interface AppState {
   stashes: Stash[]
   tags: Tag[]
 
+  // connection & identity
+  connectionStatus: ConnectionStatus | null
+  profiles: GitProfile[]
+  /** set by App.tsx so the store can open the Connection Manager on auth errors */
+  openConnectionForCurrentRepo: (() => void) | null
+
   // selection / diff
   selection: Selection
   commitDiff: DiffFile[]
@@ -180,7 +192,7 @@ interface AppState {
   dismissUpdate: () => void
   loadRecent: () => Promise<void>
   pickAndOpenRepo: () => Promise<void>
-  pickAndCloneRepo: (url: string) => Promise<void>
+  pickAndCloneRepo: (url: string, profile?: GitProfile) => Promise<void>
   pickAndInitRepo: () => Promise<void>
   openRepoByPath: (path: string) => Promise<void>
   activateRepo: (info: RepoInfo) => Promise<void>
@@ -242,6 +254,14 @@ interface AppState {
   stashRename: (index: number, message: string) => Promise<void>
   addRemote: (name: string, url: string) => Promise<void>
   removeRemote: (name: string) => Promise<void>
+
+  // connection & identity
+  refreshConnectionStatus: () => Promise<void>
+  loadProfiles: () => void
+  saveProfile: (profile: GitProfile) => void
+  deleteProfile: (id: string) => void
+  setRemoteUrl: (repoPath: string, name: string, url: string) => Promise<void>
+  setOnAuthError: (cb: (() => void) | null) => void
 }
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -286,6 +306,10 @@ export const useStore = create<AppState>()((set, get) => ({
   remotes: [],
   stashes: [],
   tags: [],
+
+  connectionStatus: null,
+  profiles: loadPrefs().profiles ?? [],
+  openConnectionForCurrentRepo: null,
 
   selection: null,
   commitDiff: [],
@@ -549,12 +573,15 @@ export const useStore = create<AppState>()((set, get) => ({
     await get().openRepoByPath(dir)
   },
 
-  pickAndCloneRepo: async (url) => {
+  pickAndCloneRepo: async (url, profile) => {
     const dir = await call(api.selectDirectory())
     if (!dir) return
     set({ loadingRepo: true, busyLabel: 'Cloning…' })
     try {
       const target = await call(api.cloneRepo({ url, directory: dir }))
+      if (profile) {
+        await call(api.setUserConfig(target, profile.name, profile.email, 'local'))
+      }
       await get().openRepoByPath(target)
     } catch (e) {
       get().showToast({ kind: 'error', message: errMsg(e) })
@@ -607,6 +634,8 @@ export const useStore = create<AppState>()((set, get) => ({
     })
     await get().refreshAll()
     await get().loadColumnWidths(info.path)
+    // Refresh the connection status badge for the new repo's primary remote
+    void get().refreshConnectionStatus()
     // If the user already switched again, stop — selecting here would act on
     // the newer repo's data.
     if (get().repo?.path !== info.path) return
@@ -749,7 +778,8 @@ export const useStore = create<AppState>()((set, get) => ({
       workingDiff: [],
       selectedFilePath: null,
       workingFile: null,
-      editorOpen: false
+      editorOpen: false,
+      connectionStatus: null
     })
     get().persistSession()
     get().loadRecent()
@@ -924,6 +954,12 @@ export const useStore = create<AppState>()((set, get) => ({
       // (--force-with-lease) rather than just reporting the failure.
       if (!opts.force && /non-fast-forward|fetch first|\brejected\b|force/i.test(msg)) {
         set({ pushRejected: opts })
+      } else if (isAuthError(msg) && get().openConnectionForCurrentRepo) {
+        get().showToast({
+          kind: 'error',
+          message: 'Authentication failed. Check your connection settings.',
+          action: { label: 'Set up connection', onClick: get().openConnectionForCurrentRepo! }
+        })
       } else {
         get().showToast({ kind: 'error', message: msg })
       }
@@ -932,8 +968,52 @@ export const useStore = create<AppState>()((set, get) => ({
     }
   },
   dismissPushRejected: () => set({ pushRejected: null }),
-  pull: () => get().run('Pulling…', () => call(api.pull(get().repo!.path)), 'Pull complete'),
-  fetch: () => get().run('Fetching…', () => call(api.fetch(get().repo!.path)), 'Fetch complete'),
+  pull: async () => {
+    if (get().busy) return
+    set({ busy: true, busyLabel: 'Pulling…' })
+    try {
+      await call(api.pull(get().repo!.path))
+      await get().refreshAll()
+      get().showToast({ kind: 'success', message: 'Pull complete' })
+    } catch (e) {
+      const msg = errMsg(e)
+      if (isAuthError(msg) && get().openConnectionForCurrentRepo) {
+        get().showToast({
+          kind: 'error',
+          message: 'Authentication failed. Check your connection settings.',
+          action: { label: 'Set up connection', onClick: get().openConnectionForCurrentRepo! }
+        })
+      } else {
+        get().showToast({ kind: 'error', message: msg })
+      }
+      await get().refreshAll()
+    } finally {
+      set({ busy: false, busyLabel: '' })
+    }
+  },
+  fetch: async () => {
+    if (get().busy) return
+    set({ busy: true, busyLabel: 'Fetching…' })
+    try {
+      await call(api.fetch(get().repo!.path))
+      await get().refreshAll()
+      get().showToast({ kind: 'success', message: 'Fetch complete' })
+    } catch (e) {
+      const msg = errMsg(e)
+      if (isAuthError(msg) && get().openConnectionForCurrentRepo) {
+        get().showToast({
+          kind: 'error',
+          message: 'Authentication failed. Check your connection settings.',
+          action: { label: 'Set up connection', onClick: get().openConnectionForCurrentRepo! }
+        })
+      } else {
+        get().showToast({ kind: 'error', message: msg })
+      }
+      await get().refreshAll()
+    } finally {
+      set({ busy: false, busyLabel: '' })
+    }
+  },
 
   // Background sync, triggered by the timer, when the window becomes visible
   // and when switching repos. The local refresh runs FIRST so the UI reacts
@@ -1150,9 +1230,109 @@ export const useStore = create<AppState>()((set, get) => ({
   addRemote: (name, url) =>
     get().run('Adding remote…', () => call(api.addRemote(get().repo!.path, name, url)), 'Remote added'),
   removeRemote: (name) =>
-    get().run('Removing remote…', () => call(api.removeRemote(get().repo!.path, name)), 'Remote removed')
+    get().run('Removing remote…', () => call(api.removeRemote(get().repo!.path, name)), 'Remote removed'),
+
+  refreshConnectionStatus: async () => {
+    const repo = get().repo
+    if (!repo) {
+      set({ connectionStatus: null })
+      return
+    }
+    try {
+      const remotes = await call(api.getRemotes(repo.path))
+      const primary = remotes.find((r) => r.name === 'origin') ?? remotes[0]
+      if (!primary) {
+        set({ connectionStatus: null })
+        return
+      }
+      const url = primary.fetch || primary.push
+      if (!url) {
+        set({ connectionStatus: null })
+        return
+      }
+      const protocol: RemoteProtocol = url.startsWith('https://') || url.startsWith('http://')
+        ? 'https'
+        : 'ssh'
+      // extract host (include port so credential lookups match git)
+      let host = ''
+      if (protocol === 'https') {
+        const m = url.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/)
+        host = m ? m[1] : ''
+      } else {
+        const scp = url.match(/^[^@]+@([^:/]+):/)
+        if (scp) host = scp[1]
+        else {
+          const m = url.match(/^ssh:\/\/([^/]+)/)
+          host = m ? m[1] : ''
+        }
+      }
+      if (!host) {
+        set({ connectionStatus: null })
+        return
+      }
+      if (protocol === 'https') {
+        const credStatus = await call(api.checkHttpsCredentials(host))
+        set({
+          connectionStatus: {
+            protocol: 'https',
+            host,
+            sshOk: false,
+            httpsOk: credStatus.stored,
+            httpsUsername: credStatus.username
+          }
+        })
+      } else {
+        const keys = await call(api.listSshKeys())
+        set({
+          connectionStatus: {
+            protocol: 'ssh',
+            host,
+            sshOk: keys.length > 0,
+            sshKey: keys[0]?.name,
+            httpsOk: false
+          }
+        })
+      }
+    } catch {
+      set({ connectionStatus: null })
+    }
+  },
+
+  loadProfiles: () => {
+    const prefs = loadPrefs()
+    set({ profiles: prefs.profiles })
+  },
+
+  saveProfile: (profile) => {
+    const profiles = get().profiles
+    const idx = profiles.findIndex((p) => p.id === profile.id)
+    const next = idx >= 0
+      ? profiles.map((p) => (p.id === profile.id ? profile : p))
+      : [...profiles, profile]
+    set({ profiles: next })
+    saveAllPrefs(get)
+  },
+
+  deleteProfile: (id) => {
+    const next = get().profiles.filter((p) => p.id !== id)
+    set({ profiles: next })
+    saveAllPrefs(get)
+  },
+
+  setRemoteUrl: async (repoPath, name, url) => {
+    await call(api.setRemoteUrl(repoPath, name, url))
+    await get().refreshAll()
+    get().refreshConnectionStatus()
+  },
+
+  setOnAuthError: (cb) => set({ openConnectionForCurrentRepo: cb })
 }))
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
+}
+
+/** Detect common git auth/credential failure messages. */
+function isAuthError(msg: string): boolean {
+  return /Permission denied|Authentication failed|could not read Username|Invalid username or password|No credentials|fatal:.*not authorized|401|403.*Forbidden/i.test(msg)
 }

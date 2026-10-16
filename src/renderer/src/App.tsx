@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { PanelLeft, PanelRight } from 'lucide-react'
 import { useStore } from './store/useStore'
+import { api, call } from './lib/ipc'
 import { TitleBar } from './components/TitleBar'
 import { Toolbar } from './components/Toolbar'
 import { Sidebar } from './components/Sidebar'
@@ -15,10 +16,13 @@ import { StatusBar } from './components/StatusBar'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { SshManager } from './components/SshManager'
+import { ConnectionManager } from './components/ConnectionManager'
 import { SettingsModal } from './components/SettingsModal'
 import { Toast } from './components/Toast'
 import { UpdateBanner } from './components/UpdateBanner'
 import { SearchBar } from './components/SearchBar'
+import { detectProtocol, extractHost } from './lib/remoteUrl'
+import type { RemoteProtocol } from '@shared/types'
 
 export default function App(): React.JSX.Element {
   const repo = useStore((s) => s.repo)
@@ -41,6 +45,12 @@ export default function App(): React.JSX.Element {
   const closeResolve = useStore((s) => s.closeResolve)
   const [sshOpen, setSshOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [connManager, setConnManager] = useState<{
+    host: string
+    protocol: RemoteProtocol
+    remoteUrl?: string
+    pendingRemoteChange?: { repoPath: string; remoteName: string; newUrl: string }
+  } | null>(null)
   const dragging = useRef<'left' | 'right' | null>(null)
   const sshOpenRef = useRef(sshOpen)
   sshOpenRef.current = sshOpen
@@ -49,6 +59,29 @@ export default function App(): React.JSX.Element {
     loadRecent()
     restoreSession()
   }, [loadRecent, restoreSession])
+
+  // Wire the store's auth-error callback so failed fetch/pull/push can offer
+  // a "Set up connection" button that opens the Connection Manager.
+  useEffect(() => {
+    const openConnection = async (): Promise<void> => {
+      const r = useStore.getState().repo
+      if (!r) return
+      try {
+        const remotes = await call(api.getRemotes(r.path))
+        const primary = remotes.find((rm) => rm.name === 'origin') ?? remotes[0]
+        if (!primary) return
+        const url = primary.fetch || primary.push
+        if (!url) return
+        const protocol = detectProtocol(url)
+        const host = extractHost(url)
+        setConnManager({ host, protocol, remoteUrl: url })
+      } catch {
+        /* no remotes */
+      }
+    }
+    useStore.getState().setOnAuthError(openConnection)
+    return () => useStore.getState().setOnAuthError(null)
+  }, [])
 
   // Check for a newer release on startup, then periodically (every 6h).
   useEffect(() => {
@@ -184,7 +217,11 @@ export default function App(): React.JSX.Element {
 
   return (
     <div className="h-screen flex flex-col bg-app-bg text-app-text">
-      <TitleBar onOpenSsh={() => setSshOpen(true)} onOpenSettings={() => setSettingsOpen(true)} />
+      <TitleBar
+        onOpenSsh={() => setSshOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenConnection={(host, protocol, remoteUrl) => setConnManager({ host, protocol, remoteUrl })}
+      />
       <UpdateBanner />
 
       {repo ? (
@@ -249,11 +286,39 @@ export default function App(): React.JSX.Element {
           <StatusBar />
         </>
       ) : (
-        <WelcomeScreen onOpenSsh={() => setSshOpen(true)} />
+        <WelcomeScreen
+          onOpenSsh={() => setSshOpen(true)}
+          onOpenConnection={(host, protocol, remoteUrl) => setConnManager({ host, protocol, remoteUrl })}
+        />
       )}
 
       {sshOpen && <SshManager onClose={() => setSshOpen(false)} />}
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          onOpenConnection={(host, protocol, pendingRemoteChange) => {
+            setSettingsOpen(false)
+            setConnManager({ host, protocol, remoteUrl: pendingRemoteChange?.newUrl, pendingRemoteChange })
+          }}
+        />
+      )}
+      {connManager && (
+        <ConnectionManager
+          host={connManager.host}
+          protocol={connManager.protocol}
+          remoteUrl={connManager.remoteUrl}
+          onConnected={async () => {
+            const pending = connManager.pendingRemoteChange
+            setConnManager(null)
+            if (pending) {
+              await useStore.getState().setRemoteUrl(pending.repoPath, pending.remoteName, pending.newUrl)
+            } else {
+              useStore.getState().refreshConnectionStatus?.()
+            }
+          }}
+          onClose={() => setConnManager(null)}
+        />
+      )}
       {resolveFile && <MergeResolver file={resolveFile} onClose={closeResolve} />}
       <SearchBar />
       <Toast />

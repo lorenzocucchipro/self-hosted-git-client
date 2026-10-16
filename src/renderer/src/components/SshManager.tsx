@@ -38,7 +38,9 @@ export function SshManager({ onClose }: { onClose: () => void }): React.JSX.Elem
 
   return (
     <div className="fixed inset-0 z-40 bg-app-bg flex flex-col">
-      <header className="flex items-center gap-2 h-12 px-4 border-b border-app-border shrink-0">
+      <header className="drag-region flex items-center gap-2 h-12 px-4 border-b border-app-border shrink-0">
+        {/* leave room for macOS traffic lights */}
+        <div className="w-16 shrink-0" />
         <KeyRound size={18} className="text-app-accent" />
         <h1 className="font-semibold text-app-text">SSH keys</h1>
         <div className="flex-1" />
