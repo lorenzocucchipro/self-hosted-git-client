@@ -10,10 +10,8 @@ import { detectProtocol, extractHost } from '../lib/remoteUrl'
 import type { RemoteProtocol, GitProfile } from '@shared/types'
 
 export function WelcomeScreen({
-  onOpenSsh,
   onOpenConnection
 }: {
-  onOpenSsh: () => void
   onOpenConnection: (host: string, protocol: RemoteProtocol, remoteUrl?: string) => void
 }): React.JSX.Element {
   const recentRepos = useStore((s) => s.recentRepos)
@@ -216,12 +214,6 @@ export function WelcomeScreen({
             <h2 className="flex items-center gap-1.5 text-[12px] uppercase tracking-wide text-app-muted">
               <Clock size={13} /> Recent
             </h2>
-            <button
-              onClick={onOpenSsh}
-              className="no-drag flex items-center gap-1.5 text-[12px] text-app-muted hover:text-app-text"
-            >
-              <KeyRound size={13} /> SSH keys
-            </button>
           </div>
           {recentRepos.length === 0 ? (
             <p className="text-app-muted text-[13px] py-4 text-center">

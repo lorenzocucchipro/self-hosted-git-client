@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-16
 
-**Status**: Draft
+**Status**: Draft (post-implementation bug fixes added)
 
 **Input**: User description: "A centralized, guided, in-app Connection Manager that handles everything needed for git authentication and identity — for existing repositories and for new clones — so the user never has to open a terminal. Covers: remote URL switching between HTTPS and SSH, HTTPS credential management via the OS keychain, SSH connection testing, a guided setup wizard, an enhanced clone dialog, multiple git identity profiles with local/global scope, a connection status badge, and explicit scope flags with clear warnings about global-config impact on third-party tools like SourceTree."
 
@@ -17,6 +17,10 @@
 - Q: When the user fetches from an HTTPS remote and no credentials are stored, should the app auto-open the wizard or show an error toast? → A: Error toast with a "Set up connection" button — user clicks to open the wizard.
 - Q: Should the connection status badge perform a live network test on repo open or only check locally? → A: Local-only check on repo open (credentials exist? key exists?) — fast, live test only on explicit user action.
 - Q: Should the app offer to write the credential helper to git config as an explicit option, or is the automatic flag sufficient? → A: Automatic flag only, no config-file write in the UI. Include a disclaimer with a short overview of the terminal command for manual setup.
+- Q: Should the Connection Manager become a single hub with tabs for all connection functions including identity, or should identity stay in its own separate quick-access modal? → A: Connection Manager hub for SSH/HTTPS/remote URLs; separate identity modal via its own TitleBar button.
+- Q: When SshManager is merged into the Connection Manager, should the KeyRound button be removed or redirected? → A: Remove the KeyRound button entirely. The Connection Manager button (Plug icon) gets a dynamic status indicator — a small green tick or red cross in the corner of the button icon — showing connection health at a glance. This merges the connection status badge into the button itself.
+- Q: Should the Connection Manager hub use a tabbed layout or a single scrollable page? → A: Tabbed layout with "Connection" (protocol-aware), "SSH Keys", and "Remotes" tabs.
+- Q: Should the dedicated identity modal also show connection status, or be purely identity-focused? → A: Purely identity-focused — no connection status, no remotes, no credentials. Keeps it fast and minimal for SC-005.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -163,9 +167,9 @@ global scope and verify the warning is shown before applying.
 **Acceptance Scenarios**:
 
 1. **Given** the user is in Settings with a repository open, **When**
-   they create a new identity profile with a label, name and email,
-   **Then** the profile is saved and appears in the profile dropdown for
-   future use.
+   they click "Save as new profile" and an in-app dialog opens, **Then**
+   the user enters a label, name and email, and the profile is saved
+   and appears in the profile dropdown for future use.
 2. **Given** the user has selected a profile and chosen "This repository
    only", **When** they click Save, **Then** only the current repository's
    git config is updated and no other repository or tool is affected.
@@ -228,16 +232,16 @@ shows red, Clone is disabled, and "Set up connection" is offered.
 ### User Story 6 - Connection Status Badge (Priority: P3)
 
 A user has a repository open and wants to see at a glance whether the
-remote connection is healthy. The TitleBar shows a small badge next to the
-branch name indicating the protocol (SSH or HTTPS), the key name or
-username, and a green check or red cross. The badge reflects a local-only
-check on repo open — whether credentials or an SSH key exist for the
-primary remote's host — without making a network call, so it is fast and
-non-blocking. A live network test is performed only when the user
-explicitly clicks "Test" in the Connection Manager or runs the wizard.
-Clicking the badge opens the Connection Manager for the current
-repository's remote host. The status is checked when the repository is
-opened and refreshed after any connection-related action.
+remote connection is healthy. The Connection Manager button (Plug icon)
+in the TitleBar shows a small green tick or red cross in the corner of
+the icon, reflecting the connection health of the primary remote. The
+indicator reflects a local-only check on repo open — whether credentials
+or an SSH key exist for the primary remote's host — without making a
+network call, so it is fast and non-blocking. A live network test is
+performed only when the user explicitly clicks "Test" in the Connection
+Manager. Clicking the button opens the Connection Manager for the
+current repository's remote host. The status is checked when the
+repository is opened and refreshed after any connection-related action.
 
 **Why this priority**: Provides ongoing visibility and quick access to
 connection management. Lower priority because it is a monitoring
@@ -250,19 +254,23 @@ badge shows a key icon, the key name, and a green check. Click the badge
 **Acceptance Scenarios**:
 
 1. **Given** a repository with a working SSH remote, **When** the
-   repository is opened, **Then** the TitleBar badge shows the SSH key
-   icon, the key name, and a green checkmark (based on a local check that
-   an SSH key exists for the host, not a live network test).
+   repository is opened, **Then** the Connection Manager button shows a
+   small green tick in the corner of the Plug icon (based on a local
+   check that an SSH key exists for the host, not a live network test).
 2. **Given** a repository with an HTTPS remote and stored credentials,
-   **When** the repository is opened, **Then** the badge shows a globe
-   icon, the stored username, and a green checkmark (based on a local
-   check that credentials exist in the OS store, not a live network test).
+   **When** the repository is opened, **Then** the Connection Manager
+   button shows a small green tick in the corner of the Plug icon (based
+   on a local check that credentials exist in the OS store, not a live
+   network test).
 3. **Given** a repository with no SSH key configured for its remote host,
-   **When** the repository is opened, **Then** the badge shows a red
-   cross and clicking it opens the Connection Manager.
+   **When** the repository is opened, **Then** the Connection Manager
+   button shows a small red cross in the corner of the Plug icon and
+   clicking it opens the Connection Manager.
 4. **Given** the user fixes a broken connection via the Connection
-   Manager, **When** the wizard completes, **Then** the badge updates to
-   show a green checkmark without requiring a page reload.
+   Manager (by storing credentials or closing the wizard after
+   saving), **When** the wizard closes (via "Done" or the X button),
+   **Then** the button's status indicator updates to show a green tick
+   without requiring a page reload or app restart.
 
 ---
 
@@ -330,6 +338,105 @@ credentials. The stored username is shown. Click "Remove". Verify via
   repository? Each remote is listed independently; switching one does not
   affect the others.
 
+## Post-Implementation Bugs (2026-10-16)
+
+After the initial implementation, five issues were identified during
+testing. These are captured here as new/updated functional requirements
+and user stories.
+
+### Bug 1: HTTPS credential badge does not refresh after saving credentials
+
+**Root cause**: The `saveCreds` and `removeCreds` functions in the
+Connection Manager update the component's local state but never call
+`refreshConnectionStatus()` on the store. The "Done" button (which
+triggers the refresh via `onConnected`) only appears when the access
+test passes. Closing the wizard via the X button also skips the
+refresh.
+
+**Impact**: FR-017 is violated. The badge only updates on app restart
+or when the user clicks "Done" after a successful test.
+
+**Fix**: Call `refreshConnectionStatus()` after every credential
+store/remove operation inside the Connection Manager, and in the
+`onClose` handler in App.tsx.
+
+### Bug 2: SSH access testing — key not in ssh-agent
+
+**Root cause**: `BatchMode=yes` (FR-021) prevents SSH from prompting
+for passphrases. If the user's key has a passphrase and is not loaded
+into `ssh-agent`, every attempt fails silently with "Permission
+denied". The app cannot prompt for passphrases by design (non-goals).
+
+**Impact**: The SSH test reports failure even when the key is valid.
+The user has no in-app guidance on how to resolve it.
+
+**Fix**: When the SSH test fails, show a diagnostic message explaining
+the common causes: (a) the key is not added to the hosting provider,
+(b) the key has a passphrase not loaded in ssh-agent, (c) the host is
+unreachable. Include the exact terminal commands the user can run to
+isolate the issue (`ssh -T git@host` without BatchMode, `ssh-add -l`,
+`ssh-add ~/.ssh/<key>`).
+
+### Bug 3: "Save as new profile" does nothing
+
+**Root cause**: `saveAsNewProfile` and `editProfile` in
+SettingsModal.tsx use `window.prompt()`, which is not implemented in
+Electron — it returns `null` immediately without showing a dialog.
+The function exits early and nothing happens.
+
+**Impact**: FR-012 (create and edit profiles) is broken. Profile
+deletion works because it uses `window.confirm()`, which Electron does
+implement.
+
+**Fix**: Replace `window.prompt()` with an in-app modal dialog (using
+the existing PromptModal pattern). Both "Save as new profile" and
+"Edit profile" need a proper form modal with label, name, and email
+fields.
+
+### Bug 4: Connection-related menus are scattered and confusing
+
+**Root cause**: Connection management is split across 4+ entry points
+with overlapping responsibilities:
+1. Connection chip in TitleBar (opens Connection Manager)
+2. Plug icon in TitleBar (opens Connection Manager — duplicate of #1)
+3. KeyRound icon in TitleBar (opens separate SshManager)
+4. Settings → Remotes section (SSH↔HTTPS switching)
+5. Settings → Git identity (name/email profiles)
+
+The SshManager and Connection Manager's SSH path duplicate key
+listing and testing. The remote URL switcher is buried in Settings
+instead of being part of the Connection Manager.
+
+**Impact**: Users are confused about where to find each function.
+
+**Fix**: Consolidate into a unified Connection Hub (SSH keys, HTTPS
+credentials, remote URL switching). Identity management stays in its
+own separate quick-access modal (see Bug 5). Specifically:
+- Merge SshManager into the Connection Manager (the SSH path already
+  lists/generates/tests keys)
+- Move the Remotes section out of Settings into the Connection Manager
+- Keep Settings for app preferences only (appearance, auto-fetch,
+  diff view)
+- Identity management (profiles, name/email, scope) is NOT part of the
+  Connection Manager — it gets its own dedicated modal (see Bug 5)
+
+### Bug 5: Git identity needs a dedicated quick-access menu
+
+**Root cause**: The Git identity section (name/email/profiles/scope)
+is buried inside the Settings modal, mixed with appearance, auto-fetch,
+and diff view preferences. Changing identity requires: Settings →
+scroll past 3 sections → Git identity.
+
+**Impact**: SC-005 ("switch between multiple git identities in under
+10 seconds") is not met in practice.
+
+**Fix**: Extract the Git identity section into its own quick-access
+modal, accessible via a dedicated button in the TitleBar (e.g. a user
+icon). One click to open, select a profile, save — no scrolling past
+unrelated settings.
+
+---
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -345,8 +452,14 @@ credentials. The stored username is shown. Click "Remove". Verify via
   they want the same helper active in the terminal and other tools (e.g.,
   `git config --global credential.helper osxkeychain`).
 - **FR-002**: The app MUST provide a guided Connection Manager wizard
-  that detects HTTPS vs SSH from a URL and walks the user through setup
-  for the detected protocol.
+  with a tabbed layout. The default tab is "Connection" which detects
+  HTTPS vs SSH from the primary remote's URL and walks the user
+  through setup for the detected protocol. Additional tabs: "SSH Keys"
+  (list, generate, delete, copy public key — replaces the standalone
+  SshManager) and "Remotes" (list remotes, switch HTTPS ↔ SSH with
+  pre-check — replaces the Settings Remotes section). The tabbed
+  layout keeps each concern focused and avoids showing irrelevant
+  sections.
 - **FR-003**: For SSH connections, the wizard MUST list available SSH
   keys, test each against the target host, display the public key with a
   copy button, and link to the hosting provider's SSH settings page when
@@ -388,17 +501,24 @@ credentials. The stored username is shown. Click "Remove". Verify via
 - **FR-015**: The Settings identity section MUST display the current
   identity's source (local, global, or none) so the user knows where the
   active value comes from.
-- **FR-016**: The TitleBar MUST display a connection status badge showing
-  the protocol, the key name or username, and a success/failure
-  indicator for the primary remote (origin, or the first remote if origin
-  does not exist). The badge MUST reflect a local-only check (whether
-  credentials or an SSH key exist for the host) on repo open, without
-  making a network call. A live network test MUST only be performed when
-  the user explicitly requests it in the Connection Manager. Clicking the
-  badge MUST open the Connection Manager.
+- **FR-016**: The TitleBar MUST display a connection status indicator
+  integrated into the Connection Manager button (the Plug icon). The
+  button MUST show a small green tick or red cross in the corner of the
+  icon, reflecting the connection health of the primary remote (origin,
+  or the first remote if origin does not exist). The indicator MUST
+  reflect a local-only check (whether credentials or an SSH key exist
+  for the host) on repo open, without making a network call. A live
+  network test MUST only be performed when the user explicitly requests
+  it in the Connection Manager. Clicking the button MUST open the
+  Connection Manager. The separate connection status badge (previously
+  a standalone element next to the branch name) is replaced by this
+  integrated indicator.
 - **FR-017**: The connection status badge MUST refresh after any
   connection-related action (wizard completion, remote URL switch,
-  credential update) without requiring a full app restart.
+  credential store, credential remove, wizard close via X button)
+  without requiring a full app restart. The refresh MUST happen
+  immediately inside the credential store/remove flow, not only when
+  the user clicks "Done".
 - **FR-018**: The Connection Manager MUST provide the ability to test,
   update, and remove stored HTTPS credentials for a given host at any
   time, not only during clone or switch.
@@ -412,6 +532,45 @@ credentials. The stored username is shown. Click "Remove". Verify via
   appear in process argument listings.
 - **FR-021**: SSH key testing MUST use `BatchMode=yes` to prevent the
   process from hanging on a passphrase prompt.
+- **FR-022**: When SSH access testing fails, the app MUST show a
+  diagnostic message explaining the common causes (key not added to
+  provider, key passphrase not loaded in ssh-agent, host unreachable)
+  and the terminal commands to isolate the issue (`ssh -T git@host`,
+  `ssh-add -l`, `ssh-add ~/.ssh/<key>`). This guidance MUST appear
+  inline in the Connection Manager, not require opening DevTools.
+- **FR-023**: Profile creation and editing MUST use an in-app modal
+  dialog (not `window.prompt()`, which is not supported in Electron).
+  The dialog MUST include fields for label, name, and email. The
+  existing `PromptModal` component pattern should be followed.
+- **FR-024**: The connection status badge MUST refresh when the
+  Connection Manager is closed via the X button (not only via the
+  "Done" button). The `onClose` handler in App.tsx MUST call
+  `refreshConnectionStatus()`.
+- **FR-025**: SSH key management (list, generate, delete, copy public
+  key) MUST be accessible from within the Connection Manager, not
+  from a separate SshManager modal. The standalone SshManager button
+  (KeyRound icon) in the TitleBar MUST be removed entirely. The
+  Connection Manager button (Plug icon) replaces it and includes a
+  dynamic status indicator (green tick / red cross) in the corner of
+  the icon (per FR-016). Identity management (profiles, name/email,
+  scope) is NOT part of the Connection Manager — it has its own
+  dedicated modal (FR-027).
+- **FR-026**: Remote URL switching (HTTPS ↔ SSH) MUST be accessible
+  from within the Connection Manager, not only from the Settings
+  modal. The Remotes section should be removed from Settings (Settings
+  keeps only app preferences: appearance, auto-fetch, diff view). The
+  primary and only path for remote URL switching is through the
+  Connection Manager.
+- **FR-027**: Git identity management (view current identity, select
+  profile, edit name/email, choose scope, save) MUST be accessible
+  via a dedicated quick-access button in the TitleBar that opens a
+  focused identity modal — not buried inside the general Settings
+  modal behind unrelated preferences. The identity modal MUST be
+  purely identity-focused: it shows the current identity with its
+  source (local/global/none), a profile dropdown, name/email fields,
+  a scope radio (local/global with warning), and save/edit/delete
+  actions. It MUST NOT show connection status, remotes, or
+  credentials — those belong in the Connection Manager.
 
 ### Key Entities
 
@@ -450,7 +609,9 @@ credentials. The stored username is shown. Click "Remove". Verify via
   copy the public key, add it to the provider, and verify) entirely
   within the app, without opening a terminal.
 - **SC-005**: A user can switch between multiple git identities for a
-  repository in under 10 seconds by selecting a saved profile.
+  repository in under 10 seconds by selecting a saved profile, via a
+  dedicated quick-access button in the TitleBar — not buried inside
+  general Settings.
 - **SC-006**: A user can see at a glance whether the current repository's
   remote connection is healthy via the TitleBar badge, without navigating
   to any settings panel.
@@ -463,6 +624,20 @@ credentials. The stored username is shown. Click "Remove". Verify via
 - **SC-009**: The password component of HTTPS credentials is never
   displayed, logged, or returned to the user interface after being
   stored.
+- **SC-010**: After storing or removing HTTPS credentials in the
+  Connection Manager, the TitleBar badge updates to reflect the new
+  state immediately — without clicking "Done" and without restarting
+  the app.
+- **SC-011**: Clicking "Save as new profile" opens an in-app dialog
+  (not a browser prompt) where the user enters a label, name, and
+  email. The profile is saved and appears in the dropdown.
+- **SC-012**: When an SSH access test fails, the user sees inline
+  guidance explaining what to check (key added to provider, key in
+  ssh-agent, host reachable) and the terminal commands to run.
+- **SC-013**: All connection-related functions (SSH keys, credential
+  management, remote URL switching) are accessible from a single
+  Connection Manager hub — not scattered across multiple separate
+  modals and Settings sections.
 
 ## Assumptions
 

@@ -15,9 +15,9 @@ import { ChangesPanel } from './components/ChangesPanel'
 import { StatusBar } from './components/StatusBar'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { SshManager } from './components/SshManager'
 import { ConnectionManager } from './components/ConnectionManager'
 import { SettingsModal } from './components/SettingsModal'
+import { IdentityModal } from './components/IdentityModal'
 import { Toast } from './components/Toast'
 import { UpdateBanner } from './components/UpdateBanner'
 import { SearchBar } from './components/SearchBar'
@@ -43,8 +43,8 @@ export default function App(): React.JSX.Element {
   const autoFetchMinutes = useStore((s) => s.autoFetchMinutes)
   const resolveFile = useStore((s) => s.resolveFile)
   const closeResolve = useStore((s) => s.closeResolve)
-  const [sshOpen, setSshOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [identityOpen, setIdentityOpen] = useState(false)
   const [connManager, setConnManager] = useState<{
     host: string
     protocol: RemoteProtocol
@@ -52,8 +52,6 @@ export default function App(): React.JSX.Element {
     pendingRemoteChange?: { repoPath: string; remoteName: string; newUrl: string }
   } | null>(null)
   const dragging = useRef<'left' | 'right' | null>(null)
-  const sshOpenRef = useRef(sshOpen)
-  sshOpenRef.current = sshOpen
 
   useEffect(() => {
     loadRecent()
@@ -136,7 +134,6 @@ export default function App(): React.JSX.Element {
         }
         return
       }
-      if (sshOpenRef.current) return
       const t = e.target as HTMLElement | null
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       const s = useStore.getState()
@@ -218,9 +215,9 @@ export default function App(): React.JSX.Element {
   return (
     <div className="h-screen flex flex-col bg-app-bg text-app-text">
       <TitleBar
-        onOpenSsh={() => setSshOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenConnection={(host, protocol, remoteUrl) => setConnManager({ host, protocol, remoteUrl })}
+        onOpenIdentity={() => setIdentityOpen(true)}
       />
       <UpdateBanner />
 
@@ -287,26 +284,18 @@ export default function App(): React.JSX.Element {
         </>
       ) : (
         <WelcomeScreen
-          onOpenSsh={() => setSshOpen(true)}
           onOpenConnection={(host, protocol, remoteUrl) => setConnManager({ host, protocol, remoteUrl })}
         />
       )}
 
-      {sshOpen && <SshManager onClose={() => setSshOpen(false)} />}
-      {settingsOpen && (
-        <SettingsModal
-          onClose={() => setSettingsOpen(false)}
-          onOpenConnection={(host, protocol, pendingRemoteChange) => {
-            setSettingsOpen(false)
-            setConnManager({ host, protocol, remoteUrl: pendingRemoteChange?.newUrl, pendingRemoteChange })
-          }}
-        />
-      )}
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {identityOpen && <IdentityModal onClose={() => setIdentityOpen(false)} />}
       {connManager && (
         <ConnectionManager
           host={connManager.host}
           protocol={connManager.protocol}
           remoteUrl={connManager.remoteUrl}
+          repoPath={repo?.path}
           onConnected={async () => {
             const pending = connManager.pendingRemoteChange
             setConnManager(null)
@@ -316,7 +305,18 @@ export default function App(): React.JSX.Element {
               useStore.getState().refreshConnectionStatus?.()
             }
           }}
-          onClose={() => setConnManager(null)}
+          onClose={() => {
+            setConnManager(null)
+            useStore.getState().refreshConnectionStatus?.()
+          }}
+          onOpenConnection={(host, protocol, pendingRemoteChange) => {
+            setConnManager({
+              host,
+              protocol,
+              remoteUrl: pendingRemoteChange?.newUrl,
+              pendingRemoteChange
+            })
+          }}
         />
       )}
       {resolveFile && <MergeResolver file={resolveFile} onClose={closeResolve} />}

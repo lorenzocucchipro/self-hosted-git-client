@@ -1,5 +1,5 @@
 import React from 'react'
-import { GitBranch, KeyRound, Sun, Moon, Home, RefreshCw, Settings, Plug, Check, X, Globe } from 'lucide-react'
+import { GitBranch, KeyRound, Sun, Moon, Home, RefreshCw, Settings, Plug, Check, X, Globe, User } from 'lucide-react'
 import { useStore } from '../store/useStore'
 import { branding } from '../branding'
 import { IconButton, Spinner } from './ui'
@@ -8,13 +8,13 @@ import { detectProtocol, extractHost } from '../lib/remoteUrl'
 import type { RemoteProtocol } from '@shared/types'
 
 export function TitleBar({
-  onOpenSsh,
   onOpenSettings,
-  onOpenConnection
+  onOpenConnection,
+  onOpenIdentity
 }: {
-  onOpenSsh: () => void
   onOpenSettings: () => void
   onOpenConnection: (host: string, protocol: RemoteProtocol, remoteUrl?: string) => void
+  onOpenIdentity: () => void
 }): React.JSX.Element {
   const repo = useStore((s) => s.repo)
   const theme = useStore((s) => s.theme)
@@ -100,9 +100,11 @@ export function TitleBar({
             <Plug size={16} />
           </IconButton>
         )}
-        <IconButton title="SSH keys" onClick={onOpenSsh}>
-          <KeyRound size={16} />
-        </IconButton>
+        {repo && (
+          <IconButton title="Git identity" onClick={onOpenIdentity}>
+            <User size={16} />
+          </IconButton>
+        )}
         <IconButton title="Settings" onClick={onOpenSettings}>
           <Settings size={16} />
         </IconButton>

@@ -82,7 +82,9 @@ Result of a live HTTPS connection test.
 ### ConnectionStatus
 
 The authentication state of a repository's primary remote. Used by the
-TitleBar badge.
+integrated status indicator on the Connection Manager button (Plug icon)
+in the TitleBar — a small green tick or red cross in the corner of the
+icon. Not a separate badge element.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -117,10 +119,12 @@ The current git identity for a repository with the source of each value.
 
 | Action | Description |
 |--------|-------------|
-| `refreshConnectionStatus()` | Fetches `ConnectionStatus` for the current repo's primary remote. Called on repo open and after connection-related actions. |
+| `refreshConnectionStatus()` | Fetches `ConnectionStatus` for the current repo's primary remote. Called on repo open, after credential store/remove, after wizard close (Done or X), and after remote URL switch. |
 | `loadProfiles()` | Loads `GitProfile[]` from Prefs into store state. |
 | `saveProfile(profile)` | Creates or updates a profile in Prefs and refreshes store state. |
 | `deleteProfile(id)` | Removes a profile from Prefs and refreshes store state. |
+| `setRemoteUrl(repoPath, name, url)` | Changes a remote's URL. Calls `refreshConnectionStatus` after. |
+| `setOnAuthError(cb)` | Sets a callback that opens the Connection Manager when auth fails during fetch/pull/push. |
 
 ## Prefs Extension (src/renderer/src/lib/prefs.ts)
 
@@ -132,6 +136,18 @@ The existing `Prefs` interface gains one new field:
 
 Loaded and saved via the existing `loadPrefs()` / `savePrefs()` functions.
 Corruption recovery: if `profiles` is not an array, default to `[]`.
+
+## App.tsx Component State (Bug Fixes)
+
+The following component state fields in `App.tsx` are added or
+modified by the post-implementation bug fixes:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sshOpen` | `boolean` | Removed (Chunk 7d) — SshManager merged into Connection Manager, KeyRound button removed |
+| `settingsOpen` | `boolean` | Retained for appearance/auto-fetch/diff view only |
+| `connManager` | `{ host, protocol, activeTab?, pendingRemoteChange? } \| null` | Extended with tab state (Connection, SSH Keys, Remotes) and Remotes support (Chunk 7d) |
+| `identityOpen` | `boolean` | New (Chunk 7e) — controls the IdentityModal (purely identity-focused) |
 
 ## Entity Relationships
 
@@ -147,6 +163,10 @@ Repository .git/config (user.name, user.email)
 UserConfigResult (returned to renderer)
 
 ConnectionStatus (Zustand state)
+    │
+    │ rendered as
+    ▼
+Plug button corner indicator (green tick / red cross)
     │
     │ derived from
     ▼

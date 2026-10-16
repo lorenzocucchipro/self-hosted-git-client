@@ -137,11 +137,11 @@
 
 ---
 
-## Phase 6: Chunk 6 — Connection Status Badge
+## Phase 6: Chunk 6 — Connection Status Indicator (Integrated into Plug Button)
 
-**Goal**: The TitleBar badge showing protocol, key name/username, and success/failure. Local-only check on repo open. Refresh after connection-related actions.
+**Goal**: The Plug button in the TitleBar shows a small green tick or red cross in the corner, reflecting connection health. Local-only check on repo open. Refresh after connection-related actions. (Note: the standalone badge described in the original tasks below has been superseded by the integrated indicator per clarification — Chunk 7d will consolidate this further.)
 
-**Independent Test**: Open a repo with a working SSH remote — badge shows key icon + key name + green check. Open a repo with no key — badge shows red cross. Click the badge — Connection Manager opens.
+**Independent Test**: Open a repo with a working SSH remote — the Plug button shows a green tick. Open a repo with no key — the Plug button shows a red cross. Click the Plug button — Connection Manager opens.
 
 **Maps to**: US6 (Connection Status Badge)
 
@@ -253,3 +253,106 @@ Phase 7 (Polish) — after all chunks
 
 - [X] T037 Wire the remote URL change after wizard success per FR-009, US3/AC1 (partial) — `switchRemote` in `src/renderer/src/components/SettingsModal.tsx` (line 85-97) opens the Connection Manager wizard but never calls `setRemoteUrl` after the wizard verifies the connection. The `onConnected` callback in `src/renderer/src/App.tsx` (line 304-307) only closes the wizard and refreshes status. Fix: extend the `connManager` state in `App.tsx` to carry an optional pending remote change (`{ repoPath, remoteName, newUrl }`), pass it from `switchRemote` through `onOpenConnection`, and in the `onConnected` callback call `useStore.getState().setRemoteUrl(repoPath, remoteName, newUrl)` before closing the wizard. If the user cancels the wizard (`onClose`), do not apply the URL change. The `setRemoteUrl` store action already exists at `src/renderer/src/store/useStore.ts` line 1322.
 - [X] T038 Show "unsupported protocol" message in the clone dialog per Edge Cases (partial) — in `src/renderer/src/components/WelcomeScreen.tsx`, when `detectProtocol` throws for an unsupported protocol (e.g., `git://`, `file://`), `connProtocol` stays `null` and the connection status panel is hidden (line 146: `cloneUrl.trim() && connProtocol && ...`). The Clone button is disabled but no message explains why. Fix: add a state flag for unsupported protocol (e.g., `connUnsupported: boolean`), set it in the catch block of the debounced connection check (line 68), and render a message like "Unsupported protocol — use HTTPS or SSH" in the connection status panel when `connUnsupported` is true.
+
+---
+
+## Phase 8: Bug Fixes (Post-Implementation)
+
+**Goal**: Fix five bugs found during testing of the initial implementation. Updated per clarification session (tabbed layout, KeyRound removed, integrated indicator, identity modal scope).
+
+**Maps to**: US4 (identity profiles), US6 (badge/indicator), US2 (wizard), new FR-022 through FR-027
+
+### Chunk 7a: Badge Refresh After Credential Changes (Bug #1)
+
+**Maps to**: FR-017, FR-024, US6/AC4, SC-010
+
+- [X] T039 [US6] Call `refreshConnectionStatus()` after credential store in `src/renderer/src/components/ConnectionManager.tsx` — in the `saveCreds` function (line ~295), after the `await check()` and `await testAccess()` calls succeed, add `useStore.getState().refreshConnectionStatus()` so the indicator updates the moment credentials are saved, not only when the user clicks "Done". Import `useStore` (already imported in this file). The store's `refreshConnectionStatus` action reads the repo's primary remote and checks credentials/keys locally.
+- [X] T040 [US6] Call `refreshConnectionStatus()` after credential remove in `src/renderer/src/components/ConnectionManager.tsx` — in the `removeCreds` function (line ~312), after the `await check()` call, add `useStore.getState().refreshConnectionStatus()` so the indicator updates when credentials are removed.
+- [X] T041 [US6] Call `refreshConnectionStatus()` in the Connection Manager `onClose` handler in `src/renderer/src/App.tsx` — in the `onClose` callback (line ~319), after `setConnManager(null)`, add `useStore.getState().refreshConnectionStatus?.()` so the indicator refreshes even if the user closes the wizard via the X button instead of "Done". This is a safety net — T039/T040 should already handle the common path, but `onClose` catches the edge case where the user saves creds, the test fails (no "Done" button), and they close via X.
+- [X] T042 Run `npm run build` and fix any type errors. Manually test: open a repo with an HTTPS remote and no stored credentials. Open the Connection Manager, enter credentials, click Save. The Plug button indicator in the TitleBar should update to show a green tick immediately — without clicking "Done" or restarting the app.
+
+**Checkpoint**: Indicator updates immediately after credential changes. Build is green. Commit as `fix(creds): refresh indicator after credential changes`.
+
+---
+
+### Chunk 7b: SSH Diagnostic Messages (Bug #2)
+
+**Maps to**: FR-022, US2, SC-012
+
+- [X] T043 [US2] Add SSH diagnostic panel to the failure state in `src/renderer/src/components/ConnectionManager.tsx` — in the `SshPath` component (or the "Connection" tab's SSH path after Chunk 7d), when `access?.hasWorkingKey` is false (the else branch around line 148-155), expand the error message to include actionable guidance. Replace the single-line "No SSH key works" message with a diagnostic panel that explains:
+  - **Cause 1**: The key may not be added to the hosting provider. Show "Add your public key to {provider.name}" with the copy button and provider link (these already exist in the key list below — add a pointer to scroll down).
+  - **Cause 2**: The key may have a passphrase not loaded in ssh-agent. Show a code block: `ssh-add ~/.ssh/<keyname>` and explain that the app uses `BatchMode=yes` and cannot prompt for passphrases.
+  - **Cause 3**: The host may be unreachable. Show `ssh -T git@{host}` as the terminal command to test interactively (without BatchMode).
+  - Show `ssh-add -l` to list loaded keys.
+  Use Tailwind semantic tokens. Keep the panel compact but readable (text-[12px], code blocks with `font-mono bg-app-bg`).
+- [X] T044 Run `npm run build` and fix any type errors. Manually test: open the Connection Manager for an SSH host where the key has a passphrase and is not in ssh-agent. The failure message should show actionable guidance, not just "No SSH key works".
+
+**Checkpoint**: SSH failures show diagnostic guidance. Build is green. Commit as `fix(ssh): add diagnostic guidance when SSH test fails`.
+
+---
+
+### Chunk 7c: In-App Profile Dialog (Bug #3)
+
+**Maps to**: FR-023, US4/AC1, US4/AC5, SC-011
+
+- [X] T045 [P] [US4] Create a `ProfileEditModal` component (or extend `PromptModal`) — create a new modal in `src/renderer/src/components/ProfileEditModal.tsx` that takes `{ initialLabel, initialName, initialEmail, onSave: (label, name, email) => void, onClose: () => void }`. Render a `Modal` with `Input` fields for label, name, and email (follow the existing `Modal` + `Input` + `Field` pattern from `ui.tsx`). The "Save" button is disabled when label is empty. On save, call `onSave` with the trimmed values and close. Use Tailwind semantic tokens. This replaces the broken `window.prompt()` calls.
+- [X] T046 [US4] Replace `window.prompt()` in `saveAsNewProfile` in `src/renderer/src/components/SettingsModal.tsx` (or `IdentityModal.tsx` if Chunk 7e is done first) — replace the `saveAsNewProfile` function (line ~123) to open the `ProfileEditModal` with empty fields. On save, call `saveProfile({ id: crypto.randomUUID(), label, name, email })` and `setSelectedProfileId(profile.id)` and show the success toast. Add state for the modal: `const [profileModal, setProfileModal] = useState<{ mode: 'create' | 'edit'; profile?: GitProfile } | null>(null)`.
+- [X] T047 [US4] Replace `window.prompt()` in `editProfile` in `src/renderer/src/components/SettingsModal.tsx` (or `IdentityModal.tsx` if Chunk 7e is done first) — replace the `editProfile` function (line ~137) to open the `ProfileEditModal` with the profile's current values. On save, call `saveProfile({ id: p.id, label, name, email })` and show the success toast. Reuse the same `profileModal` state from T046.
+- [X] T048 Run `npm run build` and fix any type errors. Manually test: open Settings (or IdentityModal), click "Save as new profile" — a dialog appears (not a browser prompt). Enter label, name, email, click Save — profile appears in the dropdown. Click edit on a profile — same dialog with pre-filled values. Edit and save — dropdown updates.
+
+**Checkpoint**: Profile create/edit uses in-app modal. No window.prompt. Build is green. Commit as `fix(identity): replace window.prompt with in-app modal`.
+
+---
+
+### Chunk 7d: Menu Consolidation — Tabbed Hub (Bug #4)
+
+**Maps to**: FR-002, FR-025, FR-026, SC-013
+
+**Key decision (per clarification)**: The Connection Manager becomes a tabbed hub with three tabs: "Connection" (protocol-aware, default), "SSH Keys" (list, generate, delete, copy), and "Remotes" (list, switch HTTPS ↔ SSH). The standalone SshManager button (KeyRound icon) is removed entirely. `SshManager.tsx` is deleted. Identity management is NOT part of the Connection Manager.
+
+- [X] T049 [US2] [US3] Refactor `src/renderer/src/components/ConnectionManager.tsx` to a tabbed layout — add a tab bar with three tabs: "Connection" (default, shows the current SSH or HTTPS path based on protocol), "SSH Keys" (list, generate, delete, copy public key — absorbs all SshManager functionality), and "Remotes" (list remotes with switch buttons). The tab bar should use Tailwind semantic tokens and be compact. Add `activeTab` state (default: `'connection'`). The existing `SshPath` and `HttpsPath` components become the "Connection" tab content. The "SSH Keys" tab shows the key list with delete buttons (reuse `ConfirmModal` for delete confirmation). The "Remotes" tab fetches `api.getRemotes(repo.path)` and lists each remote with its URL, protocol badge, and a "Switch to {target}" button (same logic as the current `switchRemote` in SettingsModal). Accept `repoPath` as a new prop. Use `lucide-react` icons for tab labels (e.g. `Link` for Connection, `KeyRound` for SSH Keys, `GitBranch` for Remotes).
+- [X] T050 [US3] Remove the "Remotes" section from `src/renderer/src/components/SettingsModal.tsx` — remove the Remotes section (lines ~330-365) since it is now in the Connection Manager "Remotes" tab. Remove the `switchRemote` function and `remotes` state from SettingsModal. Keep the credential helper disclaimer if it is still useful, or move it to the Connection Manager "Connection" tab.
+- [X] T051 [US2] Remove the standalone SshManager entirely — in `src/renderer/src/components/TitleBar.tsx`, remove the KeyRound icon button (the `onOpenSsh` button). In `src/renderer/src/App.tsx`, remove the `sshOpen` state, the `SshManager` import, and the `<SshManager>` render block. Delete the file `src/renderer/src/components/SshManager.tsx`. The Connection Manager's "SSH Keys" tab is the replacement. Ensure no other components reference `SshManager` or `onOpenSsh`.
+- [X] T052 Run `npm run build` and fix any type errors. Manually test: open the Connection Manager — it shows three tabs. Click "SSH Keys" — lists keys with delete buttons. Click "Remotes" — lists remotes with switch buttons. Verify the KeyRound button is gone from the TitleBar. Verify `SshManager.tsx` is deleted.
+
+**Checkpoint**: Connection Manager is a tabbed hub. SshManager removed. Settings is for preferences only. Build is green. Commit as `refactor(ui): consolidate connection menus into tabbed hub`.
+
+---
+
+### Chunk 7e: Git Identity Quick-Access Modal (Bug #5)
+
+**Maps to**: FR-027, US4, SC-005
+
+**Key decision (per clarification)**: The identity modal is purely identity-focused — no connection status, no remotes, no credentials.
+
+- [X] T053 [P] [US4] Create `src/renderer/src/components/IdentityModal.tsx` — extract the Git identity section from `SettingsModal.tsx` (lines ~221-328) into its own modal component. The modal is **purely identity-focused**: it contains ONLY current identity source display, profile dropdown, profile list with edit/delete, name/email inputs, scope radio (local/global with warning), "Save as new profile" button, and "Save identity" button. It MUST NOT show connection status, remotes, or credentials — those belong in the Connection Manager. Reuse the `ProfileEditModal` from Chunk 7c. The modal takes `{ onClose: () => void }` and reads repo/profiles from the store directly. Use the existing `Modal` + `Field` + `Input` + `Button` components.
+- [X] T054 [US4] Remove the Git identity section from `src/renderer/src/components/SettingsModal.tsx` — remove the identity section (lines ~221-328) since it is now in `IdentityModal`. Keep the `settingsOpen` state in `App.tsx` for the remaining Settings sections (appearance, auto-fetch, diff view). Remove the `saveAsNewProfile`, `editProfile`, `removeProfile`, `selectProfile`, `saveIdentity` functions and related state from SettingsModal if they are no longer used there.
+- [X] T055 [US4] Add an identity button to `src/renderer/src/components/TitleBar.tsx` — add an `IconButton` with a `User` icon (from `lucide-react`) next to the existing buttons. Accept an `onOpenIdentity: () => void` prop. When a repo is open, clicking it opens the IdentityModal.
+- [X] T056 [US4] Wire up IdentityModal in `src/renderer/src/App.tsx` — add `const [identityOpen, setIdentityOpen] = useState(false)`. Pass `onOpenIdentity={() => setIdentityOpen(true)}` to `TitleBar`. Render `<IdentityModal onClose={() => setIdentityOpen(false)} />` when `identityOpen` is true.
+- [X] T057 Run `npm run build` and fix any type errors. Manually test: open a repo, click the identity button in the TitleBar — the identity modal opens immediately (no scrolling past Settings). The modal shows ONLY identity content — no connection status, no remotes, no credentials. Select a profile, click Save — done in under 10 seconds. Verify Settings no longer has the identity section.
+
+**Checkpoint**: Identity accessible via one click from TitleBar. Modal is purely identity-focused. Settings is for preferences only. Build is green. Commit as `feat(identity): add quick-access identity modal`.
+
+---
+
+## Updated Dependencies & Execution Order (with Phase 8)
+
+### Phase 8 Dependencies
+
+- **Chunk 7a** (indicator refresh): Depends on Phase 6 (indicator). Can run independently.
+- **Chunk 7b** (SSH diagnostics): Depends on Phase 3 (wizard). Can run independently.
+- **Chunk 7c** (profile dialog): Depends on Phase 5 (profiles). Can run independently.
+- **Chunk 7d** (tabbed hub consolidation): Depends on Phases 3 and 4. Can run independently of 7a/7b/7c. Largest refactor — do last.
+- **Chunk 7e** (identity quick-access modal): Depends on Chunk 7c (needs the ProfileEditModal). Must run after 7c.
+
+### Recommended Execution Order
+
+1. Chunk 7a (quick, 3 tasks) — indicator refresh
+2. Chunk 7c (medium, 4 tasks) — profile dialog (prerequisite for 7e)
+3. Chunk 7b (small, 2 tasks) — SSH diagnostics
+4. Chunk 7e (medium, 5 tasks) — identity quick-access modal
+5. Chunk 7d (large, 4 tasks) — tabbed hub consolidation (do last, largest refactor — touches ConnectionManager, SettingsModal, TitleBar, App.tsx, deletes SshManager.tsx)
+
+### Notes on Chunk 7d
+
+Chunk 7d is the largest refactor. It converts the Connection Manager from a single-path wizard to a tabbed hub (Connection, SSH Keys, Remotes), removes the standalone SshManager entirely (deletes the file), and removes the Remotes section from Settings. If Chunk 7e is done first, the identity section is already out of Settings — if not, Chunk 7d should coordinate with 7e to avoid merge conflicts in `SettingsModal.tsx` and `TitleBar.tsx`.

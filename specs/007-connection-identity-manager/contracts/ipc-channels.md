@@ -209,3 +209,18 @@ These existing channels are reused without modification:
 | `git:getRemotes` (`getRemotes`) | Listing remotes for the switcher and badge |
 | `git:cloneRepo` (`cloneRepo`) | Cloning (enhanced in the renderer, backend unchanged) |
 | `git:fetch` (`fetch`) | Fetching (unchanged, but now works with HTTPS thanks to credential helper) |
+
+## Post-Implementation Bug Fixes
+
+**No new IPC channels are needed for the bug fixes.** All five bugs
+are renderer-side or UX issues:
+
+| Bug | Fix approach | New channels? |
+|-----|-------------|---------------|
+| #1 Badge refresh | Call existing `refreshConnectionStatus()` at new points | No |
+| #2 SSH diagnostics | Renderer-side diagnostic text in ConnectionManager | No |
+| #3 Profile dialog | Replace `window.prompt` with in-app modal (renderer only) | No |
+| #4 Menu consolidation | Restructure renderer components only | No |
+| #5 Identity quick-access | New renderer modal + TitleBar button | No |
+
+All existing IPC channels remain valid and unchanged.

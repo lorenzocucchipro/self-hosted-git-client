@@ -1,14 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import {
-  KeyRound, Globe, Check, X, Copy, Plus, RefreshCw, Trash2, ExternalLink
+  KeyRound, Globe, Check, X, Copy, Plus, RefreshCw, Trash2, ExternalLink,
+  Link, GitBranch
 } from 'lucide-react'
 import { api, call } from '../lib/ipc'
 import { useStore } from '../store/useStore'
 import { Button, Input, IconButton, Spinner } from './ui'
 import { ConfirmModal } from './PromptModal'
 import { getProviderInfo } from '../lib/providers'
+import { detectProtocol, httpsToSsh, sshToHttps } from '../lib/remoteUrl'
 import type {
   RemoteProtocol,
+  Remote,
   SshKey,
   SshAccessResult,
   HttpsCredentialStatus,
@@ -25,19 +28,37 @@ const CRED_HELPER_NAME = (() => {
   return 'store'
 })()
 
+type Tab = 'connection' | 'ssh-keys' | 'remotes'
+
 export function ConnectionManager({
   host,
   protocol,
   remoteUrl,
+  repoPath,
   onConnected,
-  onClose
+  onClose,
+  onOpenConnection
 }: {
   host: string
   protocol: RemoteProtocol
   remoteUrl?: string
+  repoPath?: string
   onConnected: () => void
   onClose: () => void
+  onOpenConnection?: (
+    host: string,
+    protocol: RemoteProtocol,
+    pendingRemoteChange?: { repoPath: string; remoteName: string; newUrl: string }
+  ) => void
 }): React.JSX.Element {
+  const [activeTab, setActiveTab] = useState<Tab>('connection')
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'connection', label: 'Connection', icon: <Link size={14} /> },
+    { id: 'ssh-keys', label: 'SSH Keys', icon: <KeyRound size={14} /> },
+    { id: 'remotes', label: 'Remotes', icon: <GitBranch size={14} /> }
+  ]
+
   return (
     <div className="fixed inset-0 z-40 bg-app-bg flex flex-col">
       <header className="drag-region flex items-center gap-2 h-12 px-4 border-b border-app-border shrink-0">
@@ -56,12 +77,35 @@ export function ConnectionManager({
         </IconButton>
       </header>
 
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 px-4 h-10 border-b border-app-border shrink-0">
+        {(repoPath ? tabs : tabs.filter((t) => t.id !== 'remotes')).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id)}
+            className={`flex items-center gap-1.5 px-3 h-8 rounded-md text-[13px] font-medium transition-colors ${
+              activeTab === t.id
+                ? 'bg-app-panel-2 text-app-text border border-app-border'
+                : 'text-app-muted hover:text-app-text hover:bg-app-hover'
+            }`}
+          >
+            {t.icon}
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex-1 overflow-auto p-4">
         <div className="max-w-2xl mx-auto">
-          {protocol === 'ssh' ? (
-            <SshPath host={host} onConnected={onConnected} />
-          ) : (
-            <HttpsPath host={host} remoteUrl={remoteUrl} onConnected={onConnected} />
+          {activeTab === 'connection' &&
+            (protocol === 'ssh' ? (
+              <SshPath host={host} onConnected={onConnected} />
+            ) : (
+              <HttpsPath host={host} remoteUrl={remoteUrl} onConnected={onConnected} />
+            ))}
+          {activeTab === 'ssh-keys' && <SshKeysTab />}
+          {activeTab === 'remotes' && repoPath && onOpenConnection && (
+            <RemotesTab repoPath={repoPath} onOpenConnection={onOpenConnection} />
           )}
         </div>
       </div>
@@ -162,6 +206,47 @@ function SshPath({ host, onConnected }: { host: string; onConnected: () => void 
           </>
         )}
       </div>
+
+      {/* SSH diagnostics — shown when the test fails */}
+      {!ok && !testing && (
+        <div className="text-[12px] text-app-muted bg-app-panel border border-app-border rounded-lg p-3 leading-relaxed space-y-2">
+          <p className="font-medium text-app-text">How to isolate the problem:</p>
+          <p>
+            The app tests SSH with <span className="font-mono bg-app-bg px-1 rounded">BatchMode=yes</span>,
+            which cannot prompt for passphrases. Run these commands in a terminal:
+          </p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>
+              Test interactively (prompts for passphrase):{' '}
+              <code className="font-mono bg-app-bg px-1 rounded">ssh -T git@{host}</code>
+            </li>
+            <li>
+              List keys loaded in ssh-agent:{' '}
+              <code className="font-mono bg-app-bg px-1 rounded">ssh-add -l</code>
+            </li>
+            <li>
+              If your key is missing, load it:{' '}
+              <code className="font-mono bg-app-bg px-1 rounded">{'ssh-add ~/.ssh/<keyname>'}</code>
+            </li>
+            <li>
+              Make sure your public key is added to {provider.name}
+              {provider.sshSettingsUrl ? (
+                <>
+                  {' — '}
+                  <a
+                    href={provider.sshSettingsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-app-accent hover:underline"
+                  >
+                    SSH settings page
+                  </a>
+                </>
+              ) : null}
+            </li>
+          </ul>
+        </div>
+      )}
 
       {/* actions */}
       <div className="flex items-center gap-2">
@@ -310,6 +395,7 @@ function HttpsPath({ host, remoteUrl, onConnected }: { host: string; remoteUrl?:
       setShowForm(false)
       await check()
       await testAccess()
+      useStore.getState().refreshConnectionStatus()
     } catch (e) {
       showToast({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
     } finally {
@@ -325,6 +411,7 @@ function HttpsPath({ host, remoteUrl, onConnected }: { host: string; remoteUrl?:
       setAccess(null)
       setShowForm(true)
       await check()
+      useStore.getState().refreshConnectionStatus()
     } catch (e) {
       showToast({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
     }
@@ -529,6 +616,236 @@ function GenerateKeyForm({
           {generating ? <Spinner /> : <KeyRound size={15} />} Generate
         </Button>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SSH Keys tab — absorbs the standalone SshManager (list, generate, delete, copy)
+// ---------------------------------------------------------------------------
+
+function SshKeysTab(): React.JSX.Element {
+  const showToast = useStore((s) => s.showToast)
+  const [keys, setKeys] = useState<SshKey[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showGenerate, setShowGenerate] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [toDelete, setToDelete] = useState<SshKey | null>(null)
+
+  const reload = useCallback(async (): Promise<void> => {
+    setLoading(true)
+    try {
+      setKeys(await call(api.listSshKeys()))
+    } catch (e) {
+      showToast({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setLoading(false)
+    }
+  }, [showToast])
+
+  useEffect(() => {
+    reload()
+  }, [reload])
+
+  const copyKey = (k: SshKey): void => {
+    navigator.clipboard.writeText(k.publicKey)
+    setCopied(k.name)
+    setTimeout(() => setCopied((c) => (c === k.name ? null : c)), 2000)
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[12px] text-app-muted">
+        Keys are read from and created in <span className="font-mono">~/.ssh</span>. Copy the
+        public key and add it to your Git hosting provider to authenticate over SSH.
+      </p>
+
+      <div className="flex items-center gap-2">
+        <Button variant="primary" onClick={() => setShowGenerate((v) => !v)}>
+          <Plus size={15} /> Generate new key
+        </Button>
+      </div>
+
+      {showGenerate && (
+        <GenerateKeyForm
+          onClose={() => setShowGenerate(false)}
+          onDone={() => {
+            setShowGenerate(false)
+            reload()
+          }}
+        />
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-app-muted py-8 justify-center">
+          <Spinner /> Loading keys…
+        </div>
+      ) : keys.length === 0 ? (
+        <div className="text-center text-app-muted py-12 text-[13px]">
+          No SSH keys found in <span className="font-mono">~/.ssh</span>. Generate one with "Generate new key".
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {keys.map((k) => (
+            <li key={k.name} className="p-3 rounded-lg bg-app-panel border border-app-border">
+              <div className="flex items-center gap-2">
+                <KeyRound size={15} className="text-app-accent shrink-0" />
+                <span className="font-semibold text-app-text">{k.name}</span>
+                <span className="px-1.5 py-0.5 rounded bg-app-panel-2 text-[10px] text-app-muted uppercase">
+                  {k.type.replace('ssh-', '')}
+                </span>
+                <div className="flex-1" />
+                <button
+                  onClick={() => copyKey(k)}
+                  className="flex items-center gap-1 text-[12px] text-app-muted hover:text-app-text"
+                >
+                  {copied === k.name ? (
+                    <>
+                      <Check size={13} className="text-app-success" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={13} /> Copy public
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setToDelete(k)}
+                  title="Delete"
+                  className="text-app-muted hover:text-app-danger p-1"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              {k.comment && <div className="text-[12px] text-app-muted mt-1">{k.comment}</div>}
+              {k.fingerprint && (
+                <div className="text-[11px] font-mono text-app-muted mt-1">{k.fingerprint}</div>
+              )}
+              <div className="mt-2 text-[11px] font-mono text-app-text/70 bg-app-bg rounded p-2 break-all selectable max-h-20 overflow-auto">
+                {k.publicKey}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {toDelete && (
+        <ConfirmModal
+          title="Delete SSH key"
+          message={`Delete the key "${toDelete.name}" (private and public) from ~/.ssh? This cannot be undone.`}
+          danger
+          confirmText="Delete"
+          onConfirm={async () => {
+            try {
+              await call(api.deleteSshKey(toDelete.name))
+              showToast({ kind: 'success', message: 'Key deleted' })
+              reload()
+            } catch (e) {
+              showToast({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+            }
+          }}
+          onClose={() => setToDelete(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Remotes tab — lists remotes with HTTPS ↔ SSH switch (replaces Settings section)
+// ---------------------------------------------------------------------------
+
+function RemotesTab({
+  repoPath,
+  onOpenConnection
+}: {
+  repoPath: string
+  onOpenConnection: (
+    host: string,
+    protocol: RemoteProtocol,
+    pendingRemoteChange?: { repoPath: string; remoteName: string; newUrl: string }
+  ) => void
+}): React.JSX.Element {
+  const [remotes, setRemotes] = useState<Remote[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    call(api.getRemotes(repoPath))
+      .then((r) => {
+        if (alive) setRemotes(r)
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [repoPath])
+
+  const switchRemote = (remote: Remote): void => {
+    const url = remote.fetch || remote.push
+    if (!url) return
+    const currentProtocol = detectProtocol(url)
+    const targetProtocol: RemoteProtocol = currentProtocol === 'https' ? 'ssh' : 'https'
+    const newUrl = targetProtocol === 'ssh' ? httpsToSsh(url) : sshToHttps(url)
+    const host = targetProtocol === 'https'
+      ? (newUrl.match(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/]+)/)?.[1] ?? '')
+      : (newUrl.match(/^[^@]+@([^:/]+):/)?.[1] ?? '')
+    onOpenConnection(host, targetProtocol, {
+      repoPath,
+      remoteName: remote.name,
+      newUrl
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-app-muted py-8 justify-center">
+        <Spinner /> Loading remotes…
+      </div>
+    )
+  }
+
+  if (remotes.length === 0) {
+    return (
+      <p className="text-[12px] text-app-muted py-8 text-center">No remotes configured for this repository.</p>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* credential helper disclaimer */}
+      <div className="text-[11px] text-app-muted bg-app-panel border border-app-border rounded-lg p-3 leading-relaxed">
+        The credential helper is active automatically inside this app. To enable it in the terminal
+        and other tools, run: <span className="font-mono">git config --global credential.helper {CRED_HELPER_NAME}</span>
+      </div>
+
+      <ul className="space-y-2">
+        {remotes.map((r) => {
+          const url = r.fetch || r.push
+          if (!url) return null
+          let protocol: RemoteProtocol
+          try {
+            protocol = detectProtocol(url)
+          } catch {
+            return null
+          }
+          return (
+            <li key={r.name} className="flex items-center gap-2 p-3 rounded-lg bg-app-panel border border-app-border">
+              <span className="font-mono text-[12px] text-app-text font-medium">{r.name}</span>
+              <span className="text-[11px] text-app-muted truncate flex-1">{url}</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] text-app-muted bg-app-panel-2 uppercase">
+                {protocol}
+              </span>
+              <Button onClick={() => switchRemote(r)}>
+                Switch to {protocol === 'https' ? 'SSH' : 'HTTPS'}
+              </Button>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }

@@ -153,20 +153,21 @@ await window.api.getGlobalUserConfig()
 16. **Expected**: Profile removed from dropdown. Git config of any repo
     that used it is unchanged.
 
-## Chunk 6: Connection Status Badge
+## Chunk 6: Connection Status Indicator (Integrated into Plug Button)
 
-**Goal**: Badge shows connection status and updates dynamically.
+**Goal**: The Plug button shows a status indicator and updates dynamically.
 
 1. Open a repository with a working SSH remote
-2. **Expected**: TitleBar badge shows key icon + key name + green check
+2. **Expected**: The Plug button in the TitleBar shows a small green tick
+   in the corner of the icon
 3. Open a repository with an HTTPS remote and stored credentials
-4. **Expected**: Badge shows globe icon + username + green check
+4. **Expected**: The Plug button shows a small green tick in the corner
 5. Open a repository with a broken connection (no key, no credentials)
-6. **Expected**: Badge shows red cross
-7. Click the badge
+6. **Expected**: The Plug button shows a small red cross in the corner
+7. Click the Plug button
 8. **Expected**: Connection Manager opens for the current repo's host
 9. Fix the connection via the wizard
-10. **Expected**: Badge updates to green check without page reload
+10. **Expected**: The indicator updates to green tick without page reload
 
 ## Full End-to-End Validation
 
@@ -180,10 +181,94 @@ After all chunks are implemented:
 4. **SSH setup in-app**: Generate key, copy, add to provider, verify —
    all in the app (SC-004)
 5. **Switch identity**: Select a saved profile → applied in <10s (SC-005)
-6. **Badge visibility**: See connection status at a glance (SC-006)
+6. **Indicator visibility**: See connection status at a glance via the
+   Plug button indicator (SC-006)
 7. **Local isolation**: Local-only operations don't affect other repos
    or SourceTree (SC-007)
 8. **Global warning**: Global operations show warning and require
    confirmation (SC-008)
 9. **Password never shown**: After storing credentials, password is
    never displayed or returned (SC-009)
+
+## Bug Fix Validation (Chunk 7)
+
+After the bug fixes are implemented, validate each fix:
+
+### Chunk 7a: Badge Refresh (Bug #1, SC-010)
+
+1. Open a repo with an HTTPS remote and no stored credentials
+2. Note the Plug button shows a red cross indicator
+3. Open the Connection Manager (click the Plug button)
+4. Enter credentials and click "Save"
+5. **Expected**: The Plug button indicator in the TitleBar immediately
+   updates to show a green tick — without clicking "Done" and without
+   restarting the app
+6. Remove the credentials via the Connection Manager
+7. **Expected**: The indicator immediately reverts to a red cross
+8. Close the Connection Manager via the X button (without clicking Done)
+9. **Expected**: The indicator state is correct (matches what was done
+   before closing)
+
+### Chunk 7b: SSH Diagnostics (Bug #2, SC-012)
+
+1. Create an SSH key with a passphrase: `ssh-keygen -t ed25519 -f ~/.ssh/test_passphrase -N "secret"`
+2. Ensure it is NOT loaded in ssh-agent: `ssh-add -D` (remove all keys)
+3. Open the Connection Manager for an SSH host (e.g. github.com)
+4. **Expected**: The SSH test fails and shows a diagnostic panel with:
+   - An explanation that the key may have a passphrase not in ssh-agent
+   - The command `ssh-add ~/.ssh/<keyname>` to load it
+   - The command `ssh -T git@<host>` to test interactively
+   - The command `ssh-add -l` to list loaded keys
+5. Load the key: `ssh-add ~/.ssh/test_passphrase`
+6. Click "Re-test" in the Connection Manager
+7. **Expected**: The test now passes (if the key is registered with the
+   provider) or shows a different diagnostic (key not added to provider)
+8. Clean up: `ssh-add -D && rm ~/.ssh/test_passphrase ~/.ssh/test_passphrase.pub`
+
+### Chunk 7c: In-App Profile Dialog (Bug #3, SC-011)
+
+1. Open Settings (or the Identity modal after Chunk 7e)
+2. Click "Save as new profile"
+3. **Expected**: An in-app dialog opens (not a browser prompt) with
+   fields for Label, Name, and Email
+4. Enter "Test Profile", "Test User", "test@example.com"
+5. Click "Save"
+6. **Expected**: The profile appears in the dropdown, success toast shown
+7. Click the edit button on the profile
+8. **Expected**: The same dialog opens with pre-filled values
+9. Change the label to "Test Profile (updated)", click Save
+10. **Expected**: Dropdown updates with the new label
+
+### Chunk 7d: Menu Consolidation (Bug #4, SC-013)
+
+1. Open a repo with an HTTPS remote
+2. Open the Connection Manager (click the Plug button)
+3. **Expected**: The Connection Manager shows a **tabbed layout** with
+   three tabs: "Connection" (default, shows HTTPS credentials), "SSH
+   Keys" (lists keys, generate, delete, copy), and "Remotes" (lists
+   remotes with switch buttons)
+4. Click the "Remotes" tab
+5. Click "Switch to SSH" on a remote
+6. **Expected**: The wizard runs for SSH (switches to Connection tab),
+   and on success the URL changes
+7. Open Settings
+8. **Expected**: Settings shows only appearance, auto-fetch, diff view —
+   NO Remotes section, NO Git identity section (if Chunk 7e is done)
+9. Verify the standalone SSH Keys button (KeyRound icon) is **removed
+   entirely** from the TitleBar — it is not present
+
+### Chunk 7e: Git Identity Quick-Access (Bug #5, SC-005)
+
+1. Open a repo
+2. Click the identity button (User icon) in the TitleBar
+3. **Expected**: The identity modal opens immediately — no scrolling
+   past appearance/auto-fetch/diff settings. The modal shows ONLY
+   identity content: current identity with source, profile dropdown,
+   name/email fields, scope radio, save/edit/delete actions. No
+   connection status, no remotes, no credentials.
+4. Select a saved profile from the dropdown
+5. Choose "This repository only"
+6. Click "Save identity"
+7. **Expected**: Identity saved in under 10 seconds, success toast shown
+8. Open Settings
+9. **Expected**: No Git identity section — only app preferences
